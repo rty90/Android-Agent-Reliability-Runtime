@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Mapping
 
 from app.affordances import find_candidate_by_target_id
@@ -49,6 +50,16 @@ def _text_input_applied(
     return bool(after_text and after_text != before_text)
 
 
+def _is_blocking_input_method_overlay(summary: Mapping[str, Any]) -> bool:
+    overlay = summary.get("system_overlay") or {}
+    overlay_type = str(overlay.get("type") or "").lower()
+    return bool(
+        overlay.get("blocks_input")
+        and overlay.get("recommended_recovery") == "back"
+        and "input_method" in overlay_type
+    )
+
+
 class TypeTextSkill(BaseSkill):
     name = "type_text"
 
@@ -89,21 +100,56 @@ class TypeTextSkill(BaseSkill):
             runtime_config=context.runtime_config,
         )
         context.state.update_screen_summary(after_summary)
-        if not _text_input_applied(summary, after_summary, str(text), str(target_id) if target_id else None):
+        if _text_input_applied(summary, after_summary, str(text), str(target_id) if target_id else None):
             return self.result(
-                success=False,
-                detail=(
-                    "Text input did not change the UI after using {0}. "
-                    "The focused field still looks unchanged."
-                ).format(input_backend),
-                data={
-                    "input_backend": input_backend,
-                    "before_summary": summary,
-                    "after_summary": after_summary,
-                },
+                success=True,
+                detail="Text input completed.",
+                data={"input_backend": input_backend},
             )
+
+        retry_backend = None
+        retry_summary = None
+        if _is_blocking_input_method_overlay(after_summary):
+            context.adb.back()
+            time.sleep(0.3)
+            if candidate and not candidate_focused:
+                bounds = candidate["bounds"]
+                context.adb.tap(bounds["center_x"], bounds["center_y"])
+                time.sleep(0.2)
+            retry_backend = context.adb.input_text_best_effort(str(text))
+            if args.get("press_enter"):
+                context.adb.keyevent(66)
+            retry_summary = read_screen_summary(
+                context.adb,
+                "data/tmp/type_text_verify_retry.xml",
+                runtime_config=context.runtime_config,
+            )
+            context.state.update_screen_summary(retry_summary)
+            if _text_input_applied(summary, retry_summary, str(text), str(target_id) if target_id else None):
+                return self.result(
+                    success=True,
+                    detail="Text input completed after dismissing a blocking input-method overlay.",
+                    data={
+                        "input_backend": retry_backend,
+                        "previous_input_backend": input_backend,
+                        "overlay_recovery": "back_then_retry",
+                    },
+                )
+
+        failure_data = {
+            "input_backend": input_backend,
+            "before_summary": summary,
+            "after_summary": after_summary,
+        }
+        if retry_backend is not None:
+            failure_data["retry_input_backend"] = retry_backend
+        if retry_summary is not None:
+            failure_data["retry_after_summary"] = retry_summary
         return self.result(
-            success=True,
-            detail="Text input completed.",
-            data={"input_backend": input_backend},
+            success=False,
+            detail=(
+                "Text input did not change the UI after using {0}. "
+                "The focused field still looks unchanged."
+            ).format(input_backend),
+            data=failure_data,
         )

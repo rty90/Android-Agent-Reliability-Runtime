@@ -192,6 +192,53 @@ adb devices
 python -m unittest discover -s tests -v
 ```
 
+### Chaos UI Regression Harness
+
+The chaos harness is a deterministic ADB smoke/regression tool for testing UI blockers
+such as permission dialogs, onboarding overlays, bottom sheets, loading states, error
+states, and stylus/IME overlays.
+
+Default fixture APK path:
+
+```powershell
+F:\virtualver\app\build\outputs\apk\debug\app-debug.apk
+```
+
+Common adb path on this machine:
+
+```powershell
+C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe
+```
+
+Run one dry-run decision case:
+
+```powershell
+python scripts\chaos_ui_harness.py --case fixture_input_surface --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+```
+
+Recommended dry-run smoke cases:
+
+```powershell
+python scripts\chaos_ui_harness.py --case fixture_notification_permission --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+python scripts\chaos_ui_harness.py --case fixture_input_surface --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+python scripts\chaos_ui_harness.py --case fixture_loading_state --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+python scripts\chaos_ui_harness.py --case fixture_error_state --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+python scripts\chaos_ui_harness.py --case chrome_search_stylus_overlay --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+```
+
+Run the minimal execute-and-verify E2E smoke:
+
+```powershell
+python scripts\chaos_ui_e2e_smoke.py --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+```
+
+Artifacts are written under:
+
+```powershell
+data\tmp\chaos\...
+data\tmp\chaos_e2e\...
+```
+
 ## 安装
 
 ```bash

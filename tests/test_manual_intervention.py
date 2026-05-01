@@ -10,6 +10,7 @@ from app.planner import ExecutionPlan, PlanStep
 from app.skills import build_skill_registry
 from app.skills.base import SkillContext
 from app.skills.manual_intervention import ManualInterventionSkill
+from app.skills.type_text import TypeTextSkill
 from app.state import AgentState
 from app.utils.logger import setup_logger
 from app.utils.screenshot import ScreenshotManager
@@ -30,6 +31,18 @@ BLOCKED_AFTER_XML = """<?xml version="1.0" encoding="UTF-8"?>
   <node text="llm-哔哩哔哩_Bilibili" resource-id="" content-desc="" clickable="false" focusable="true" focused="true" enabled="true" bounds="[0,324][1280,2784]" class="android.webkit.WebView" hint="" />
   <node text="llm" resource-id="" content-desc="" clickable="true" focusable="true" focused="false" enabled="true" bounds="[138,369][996,429]" class="android.widget.EditText" hint="Search" />
   <node text="综合" resource-id="" content-desc="综合" clickable="true" focusable="false" focused="false" enabled="true" bounds="[66,498][165,603]" class="android.view.View" hint="" />
+</hierarchy>
+"""
+
+INPUT_SURFACE_EMPTY_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy>
+  <node text="Search or type here" package="com.example.chaosfixture" resource-id="com.example.chaosfixture:id/edit_text_input_surface" content-desc="Search or type here" clickable="true" focusable="true" focused="true" enabled="true" bounds="[72,144][1208,280]" class="android.widget.EditText" hint="Search or type here" />
+</hierarchy>
+"""
+
+INPUT_SURFACE_FILLED_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy>
+  <node text="hello chaos" package="com.example.chaosfixture" resource-id="com.example.chaosfixture:id/edit_text_input_surface" content-desc="Search or type here" clickable="true" focusable="true" focused="true" enabled="true" bounds="[72,144][1208,280]" class="android.widget.EditText" hint="Search or type here" />
 </hierarchy>
 """
 
@@ -68,6 +81,50 @@ class ManualADB(object):
 
     def back(self):
         return None
+
+    def keyevent(self, key_code):
+        return None
+
+
+class BlockingImeADB(object):
+    def __init__(self):
+        self.device_id = "emulator-5554"
+        self.overlay_active = True
+        self.text_applied = False
+        self.input_history = []
+        self.back_count = 0
+
+    def dump_ui_xml(self, local_path):
+        path = Path(local_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            INPUT_SURFACE_FILLED_XML if self.text_applied else INPUT_SURFACE_EMPTY_XML,
+            encoding="utf-8",
+        )
+        return path
+
+    def get_current_focus(self):
+        return "mCurrentFocus=Window{123 u0 com.example.chaosfixture/.MainActivity}"
+
+    def shell(self, command, check=True, timeout=None):
+        if "dumpsys window" in command and self.overlay_active:
+            return "Window #1 InputMethod package=com.google.android.inputmethod.latin mImeShowing=true"
+        if "dumpsys input_method" in command and self.overlay_active:
+            return "isStylusHandwritingEnabled=true\nsupportedHandwritingGestureTypes=SELECT|INSERT"
+        return ""
+
+    def input_text_best_effort(self, text):
+        self.input_history.append(text)
+        if not self.overlay_active:
+            self.text_applied = True
+        return "shell_input"
+
+    def tap(self, x, y):
+        return None
+
+    def back(self):
+        self.back_count += 1
+        self.overlay_active = False
 
     def keyevent(self, key_code):
         return None
@@ -116,6 +173,29 @@ class ManualInterventionTests(unittest.TestCase):
         reflections = memory.list_manual_reflections(limit=5)
         self.assertEqual(len(reflections), 1)
         self.assertFalse(reflections[0]["reflection"]["should_auto_execute"])
+
+    def test_type_text_retries_after_blocking_input_method_overlay(self):
+        adb = BlockingImeADB()
+        state = AgentState(current_task='enter "hello chaos" into the input surface', task_type="guided_ui_task")
+        context = SkillContext(
+            adb=adb,
+            state=state,
+            logger=setup_logger(name="test-type-text-overlay-retry"),
+            screenshot_manager=ScreenshotManager(base_dir="data/screenshots/test"),
+            registry=build_skill_registry(),
+            memory=self._build_memory("type_text_overlay_retry.db"),
+            runtime_config=build_demo_message_config(),
+        )
+
+        result = TypeTextSkill().execute(
+            {"text": "hello chaos", "target_id": "n001"},
+            context,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(adb.input_history, ["hello chaos", "hello chaos"])
+        self.assertEqual(adb.back_count, 1)
+        self.assertEqual(result["data"]["overlay_recovery"], "back_then_retry")
 
     def test_executor_falls_back_to_manual_intervention_for_stuck_type_text(self):
         adb = ManualADB()
