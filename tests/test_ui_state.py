@@ -53,6 +53,38 @@ class UIStateTests(unittest.TestCase):
         self.assertEqual(state["input_context"]["suppressed_blockers"][0]["source"], "system_overlay")
         self.assertEqual(state["goal_progress"]["stage"], "enter_query")
 
+    def test_treats_system_input_overlay_as_text_entry_context(self):
+        state = normalize_ui_state(
+            goal='enter "hello chaos" into the input surface',
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.example.chaosfixture",
+                "page": "input_surface",
+                "visible_text": ["Search or type here"],
+                "possible_targets": [
+                    {
+                        "label": "Search or type here",
+                        "class_name": "android.widget.EditText",
+                        "focused": True,
+                        "target_id": "n001",
+                    }
+                ],
+                "system_overlay": {
+                    "present": True,
+                    "scope": "system",
+                    "type": "handwriting_input_method",
+                    "blocks_input": True,
+                    "confidence": 0.88,
+                    "recommended_recovery": "back",
+                    "evidence": ["dumpsys window reports an InputMethod window"],
+                },
+            },
+        )
+
+        self.assertIsNone(state["primary_blocker"])
+        self.assertEqual(state["input_context"]["type"], "input_method_overlay")
+        self.assertEqual(state["primary_input"]["target_id"], "n001")
+
     def test_detects_permission_dialog_and_suggests_allow(self):
         state = normalize_ui_state(
             goal="open gmail and create a new email draft",
@@ -81,6 +113,93 @@ class UIStateTests(unittest.TestCase):
         self.assertEqual(state["primary_blocker"]["type"], "permission_dialog")
         self.assertEqual(state["primary_blocker"]["suggested_action"]["skill"], "tap")
         self.assertEqual(state["primary_blocker"]["suggested_action"]["args"]["target_id"], "n002")
+
+    def test_detects_blocking_dialog_and_suggests_allow(self):
+        state = normalize_ui_state(
+            goal="handle the blocking dialog",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.example.chaosfixture",
+                "page": "chaos_fixture",
+                "visible_text": ["Blocking Dialog", "This dialog blocks the current task.", "Allow", "Cancel"],
+                "possible_targets": [
+                    {
+                        "label": "Allow",
+                        "class_name": "android.widget.Button",
+                        "clickable": True,
+                        "target_id": "n011",
+                    },
+                    {
+                        "label": "Cancel",
+                        "class_name": "android.widget.Button",
+                        "clickable": True,
+                        "target_id": "n012",
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(state["primary_blocker"]["type"], "blocking_dialog")
+        self.assertEqual(state["primary_blocker"]["suggested_action"]["skill"], "tap")
+        self.assertEqual(state["primary_blocker"]["suggested_action"]["args"]["target_id"], "n011")
+
+    def test_detects_error_state_and_suggests_retry(self):
+        state = normalize_ui_state(
+            goal="recover from the error state",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.example.chaosfixture",
+                "page": "chaos_fixture",
+                "visible_text": ["Something went wrong", "Retry"],
+                "possible_targets": [
+                    {
+                        "label": "Retry",
+                        "class_name": "android.widget.Button",
+                        "clickable": True,
+                        "target_id": "n021",
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(state["primary_blocker"]["type"], "error_state")
+        self.assertEqual(state["primary_blocker"]["suggested_action"]["skill"], "tap")
+        self.assertEqual(state["primary_blocker"]["suggested_action"]["args"]["target_id"], "n021")
+
+    def test_detects_loading_state_and_suggests_wait(self):
+        state = normalize_ui_state(
+            goal="wait for the loading state to finish",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.example.chaosfixture",
+                "page": "chaos_fixture",
+                "visible_text": ["Loading"],
+                "possible_targets": [],
+            },
+        )
+
+        self.assertEqual(state["primary_blocker"]["type"], "loading_state")
+        self.assertEqual(state["primary_blocker"]["suggested_action"]["skill"], "wait")
+
+    def test_progressbar_keeps_loading_state_even_with_stale_loaded_text(self):
+        state = normalize_ui_state(
+            goal="wait for the loading state to finish",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.example.chaosfixture",
+                "page": "chaos_fixture",
+                "visible_text": ["Loading progress", "Loaded successfully"],
+                "possible_targets": [
+                    {
+                        "label": "Loading progress",
+                        "class_name": "android.widget.ProgressBar",
+                        "clickable": False,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(state["primary_blocker"]["type"], "loading_state")
 
     def test_marks_gmail_compose_draft_goal_complete(self):
         state = normalize_ui_state(

@@ -717,6 +717,41 @@ class ReasoningOrchestratorTests(unittest.TestCase):
         self.assertEqual(calls["local"], 0)
         self.assertEqual(calls["cloud"], 0)
 
+    def test_loading_blocker_prefers_wait_before_model_calls(self):
+        orchestrator, _trace_path = self._build_orchestrator(cloud_configured=True)
+        calls = {"local": 0, "cloud": 0}
+
+        def fail_local(**kwargs):
+            calls["local"] += 1
+            raise AssertionError("no model call needed when a loading state is visible")
+
+        def fail_cloud(**kwargs):
+            calls["cloud"] += 1
+            raise AssertionError("no cloud call needed when a loading state is visible")
+
+        orchestrator._call_openai_compatible_text = fail_local
+        orchestrator._call_openai_compatible_review = fail_cloud
+
+        result = orchestrator.resolve(
+            goal="wait for the loading state to finish",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.example.chaosfixture",
+                "page": "chaos_fixture",
+                "visible_text": ["Loading"],
+                "possible_targets": [],
+            },
+            screenshot_path=None,
+            recent_actions=[],
+            relevant_memories=[],
+        )
+
+        self.assertEqual(result["decision"].selected_backend, "rule")
+        self.assertEqual(result["decision"].skill, "wait")
+        self.assertEqual(result["decision"].args["seconds"], 2)
+        self.assertEqual(calls["local"], 0)
+        self.assertEqual(calls["cloud"], 0)
+
     def test_gmail_compose_progress_stops_before_send(self):
         orchestrator, _trace_path = self._build_orchestrator(cloud_configured=True)
         calls = {"local": 0, "cloud": 0}

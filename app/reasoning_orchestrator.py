@@ -868,7 +868,7 @@ class ReasoningOrchestrator(object):
         if not isinstance(action, dict):
             return None
         skill = str(action.get("skill") or "").strip()
-        if skill not in {"tap", "back"}:
+        if skill not in {"tap", "back", "wait"}:
             return None
         args = action.get("args") if isinstance(action.get("args"), dict) else {}
         blocker_type = str(blocker.get("type") or "blocker").strip()
