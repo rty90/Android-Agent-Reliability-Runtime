@@ -8,6 +8,7 @@ import sys
 from app.coach import run_coach_session
 from app.context_builder import ContextBuilder
 from app.demo_config import build_demo_message_config
+from app.diagnostics import summarize_for_console, write_failure_diagnostic
 from app.executor import Executor
 from app.memory import SQLiteMemory
 from app.model_runtime import ModelRuntime
@@ -266,8 +267,75 @@ def run_task(
         result["screenshots_root"] = SCREENSHOT_ROOT
         result["memory_path"] = MEMORY_PATH
         result["trace_path"] = str(trace_bus.trace_path)
+        if not result.get("success"):
+            diagnostic = write_failure_diagnostic(
+                label="agent_task_failure",
+                kind="agent_result_failure",
+                summary=str(result.get("state", {}).get("last_failure_reason") or "Agent task returned success=false."),
+                goal=task_text,
+                task_type=plan.task_type,
+                adb=adb,
+                state=state,
+                context={
+                    "route_mode": decision.mode,
+                    "reason": decision.reason,
+                    "risk_level": decision.risk_level,
+                    "agent_mode": resolved_agent_mode,
+                    "trace_path": str(trace_bus.trace_path),
+                    "logs_path": LOG_PATH,
+                },
+                artifacts={
+                    "logs_path": LOG_PATH,
+                    "screenshots_root": SCREENSHOT_ROOT,
+                    "memory_path": MEMORY_PATH,
+                    "trace_path": str(trace_bus.trace_path),
+                },
+                requested_device=device_id,
+                runtime_config=demo_config,
+            )
+            result["diagnostic"] = {
+                "schema_version": diagnostic.get("schema_version"),
+                "human_summary": diagnostic.get("human_summary"),
+                "report_path": diagnostic.get("artifacts", {}).get("diagnostic_report_path"),
+                "screenshot_path": diagnostic.get("artifacts", {}).get("screenshot_path"),
+                "ui_dump_path": diagnostic.get("artifacts", {}).get("ui_dump_path"),
+            }
         logger.info("Task completed with success=%s", result["success"])
         return result
+    except Exception as exc:
+        if runtime:
+            trace_bus = runtime.get("trace_bus")
+            diagnostic = write_failure_diagnostic(
+                label="agent_runtime_exception",
+                kind="adb_error" if isinstance(exc, ADBError) else "unhandled_exception",
+                summary="Exception while running the agent task.",
+                goal=task_text,
+                task_type=task_type_override or getattr(runtime.get("state"), "task_type", "") or "",
+                error=exc,
+                adb=runtime.get("adb"),
+                state=runtime.get("state"),
+                context={
+                    "planner_backend": planner_backend,
+                    "reasoner_backend": reasoner_backend,
+                    "agent_mode": agent_mode,
+                    "max_steps": max_steps,
+                    "dry_run": dry_run,
+                    "auto_confirm": auto_confirm,
+                    "trace_path": str(getattr(trace_bus, "trace_path", "")) if trace_bus else "",
+                    "logs_path": LOG_PATH,
+                },
+                artifacts={
+                    "logs_path": LOG_PATH,
+                    "screenshots_root": SCREENSHOT_ROOT,
+                    "memory_path": MEMORY_PATH,
+                    "trace_path": str(getattr(trace_bus, "trace_path", "")) if trace_bus else "",
+                },
+                requested_device=device_id,
+                exit_code=2 if isinstance(exc, ADBError) else 3,
+                runtime_config=demo_config,
+            )
+            setattr(exc, "diagnostic_report", diagnostic)
+        raise
     finally:
         if runtime and runtime.get("model_runtime"):
             runtime["model_runtime"].shutdown_owned_processes()
@@ -292,12 +360,36 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("success") else 1
     except ADBError as exc:
-        print("ADB error:", exc)
-        print("Logs:", LOG_PATH)
+        diagnostic = getattr(exc, "diagnostic_report", None) or write_failure_diagnostic(
+            label="main_adb_error",
+            kind="adb_error",
+            summary="ADB error while running the agent.",
+            goal=args.task,
+            task_type=args.task_type or "",
+            error=exc,
+            requested_device=args.device_id,
+            exit_code=2,
+            capture_artifacts=False,
+            artifacts={"logs_path": LOG_PATH, "screenshots_root": SCREENSHOT_ROOT},
+        )
+        print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+        print(summarize_for_console(diagnostic), file=sys.stderr)
         return 2
     except Exception as exc:
-        print("Execution error:", exc)
-        print("Logs:", LOG_PATH)
+        diagnostic = getattr(exc, "diagnostic_report", None) or write_failure_diagnostic(
+            label="main_execution_error",
+            kind="unhandled_exception",
+            summary="Unhandled exception while running the agent.",
+            goal=args.task,
+            task_type=args.task_type or "",
+            error=exc,
+            requested_device=args.device_id,
+            exit_code=3,
+            capture_artifacts=False,
+            artifacts={"logs_path": LOG_PATH, "screenshots_root": SCREENSHOT_ROOT},
+        )
+        print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+        print(summarize_for_console(diagnostic), file=sys.stderr)
         return 3
 
 

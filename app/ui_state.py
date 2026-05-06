@@ -4,6 +4,7 @@ import re
 from typing import Any, Dict, List, Optional, Sequence
 
 from app.task_types import TASK_GUIDED_UI_TASK, extract_message_body
+from app.readiness import classify_readiness
 from app.ui_facts import find_primary_input, lower, screen_corpus, text
 from app.ui_policy import detect_blockers
 
@@ -60,6 +61,9 @@ def _requested_site_terms(goal: str) -> List[str]:
 
 
 def _search_goal_complete(goal: str, screen_summary: Dict[str, Any], corpus: str) -> bool:
+    readiness = screen_summary.get("_readiness")
+    if isinstance(readiness, dict) and readiness.get("status") not in (None, "ready"):
+        return False
     query_tokens = _query_tokens(goal)
     required_tokens = _content_query_tokens(goal)
     current_url = lower(screen_summary.get("current_url"))
@@ -96,6 +100,7 @@ def assess_goal_progress(
     page = lower(screen_summary.get("page"))
     app = lower(screen_summary.get("app"))
     blockers = blockers or []
+    readiness = screen_summary.get("_readiness")
 
     if task_type != TASK_GUIDED_UI_TASK:
         return {"stage": "unknown", "status": "not_applicable", "done": False, "next_hint": ""}
@@ -107,6 +112,16 @@ def assess_goal_progress(
             "done": False,
             "next_hint": blockers[0].get("reason", "Clear the blocking UI first."),
         }
+
+    if isinstance(readiness, dict):
+        readiness_status = str(readiness.get("status") or "")
+        if readiness_status in {"loading", "uncertain"}:
+            return {
+                "stage": readiness_status,
+                "status": readiness_status,
+                "done": False,
+                "next_hint": readiness.get("reason", "Wait for the UI to become ready."),
+            }
 
     normalized_goal = lower(goal)
     if "gmail" in normalized_goal and ("draft" in normalized_goal or "email" in normalized_goal):
@@ -193,12 +208,16 @@ def normalize_ui_state(
                 for blocker in blockers
                 if not (isinstance(blocker, dict) and text(blocker.get("type")) in input_overlay_types)
             ]
-    progress = assess_goal_progress(goal, task_type, screen_summary, blockers=blockers)
+    readiness = classify_readiness(screen_summary, blockers)
+    summary_for_progress = dict(screen_summary)
+    summary_for_progress["_readiness"] = readiness
+    progress = assess_goal_progress(goal, task_type, summary_for_progress, blockers=blockers)
     return {
         "app": screen_summary.get("app"),
         "page": screen_summary.get("page"),
         "current_url": screen_summary.get("current_url"),
         "current_domain": screen_summary.get("current_domain"),
+        "readiness": readiness,
         "blockers": blockers,
         "primary_blocker": blockers[0] if blockers else None,
         "primary_input": {

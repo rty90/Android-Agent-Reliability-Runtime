@@ -6,9 +6,10 @@ import mimetypes
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from app.model_runtime import ModelRuntime
+from app.procedural_skills import resolve_guided_ui_procedure
 from app.reasoning_validator import ReasoningValidator
 from app.schemas.reasoning_decision import ReasoningDecision
 from app.trace_bus import TraceBus
@@ -124,9 +125,20 @@ class ReasoningOrchestrator(object):
             )
             return self._finish(decision, screen_summary)
 
-        blocker_decision = self._guided_blocker_decision(goal, task_type, context_payload)
-        if blocker_decision:
-            return self._finish(blocker_decision, screen_summary)
+        blocker_procedure_decision = self._guided_procedure_decision(
+            goal=goal,
+            task_type=task_type,
+            context_payload=context_payload,
+            screen_summary=screen_summary,
+            recent_actions=recent_actions,
+            allowed_names=("clear_primary_blocker",),
+        )
+        if blocker_procedure_decision:
+            return self._finish(blocker_procedure_decision, screen_summary)
+
+        readiness_decision = self._guided_readiness_decision(goal, task_type, context_payload)
+        if readiness_decision:
+            return self._finish(readiness_decision, screen_summary)
 
         if guided_ui_memory_expansion_enabled():
             pattern_result = self._resolve_interaction_pattern(
@@ -137,15 +149,15 @@ class ReasoningOrchestrator(object):
             if self._is_resolved(pattern_result["decision"], goal, task_type):
                 return self._finish(pattern_result["decision"], screen_summary)
 
-        guided_input_decision = self._guided_interaction_pattern_decision(
+        procedure_decision = self._guided_procedure_decision(
             goal=goal,
             task_type=task_type,
             context_payload=context_payload,
             screen_summary=screen_summary,
             recent_actions=recent_actions,
         )
-        if guided_input_decision:
-            return self._finish(guided_input_decision, screen_summary)
+        if procedure_decision:
+            return self._finish(procedure_decision, screen_summary)
 
         if self._should_use_model_first_action(task_type, context_payload):
             cloud_result = self._resolve_cloud_review(goal, task_type, context_payload, screenshot_path)
@@ -794,6 +806,78 @@ class ReasoningOrchestrator(object):
                 "read the current screen",
                 "read the current page",
             )
+        )
+
+    @staticmethod
+    def _guided_procedure_decision(
+        goal: str,
+        task_type: str,
+        context_payload: Dict[str, Any],
+        screen_summary: Dict[str, Any],
+        recent_actions: Optional[List[Dict[str, Any]]] = None,
+        allowed_names: Optional[Sequence[str]] = None,
+    ) -> Optional[ReasoningDecision]:
+        if task_type != TASK_GUIDED_UI_TASK:
+            return None
+        if ReasoningOrchestrator._is_read_only_guided_request(goal):
+            return None
+        ui_state = context_payload.get("ui_state")
+        if not isinstance(ui_state, dict):
+            return None
+        procedure = resolve_guided_ui_procedure(
+            goal=goal,
+            task_type=task_type,
+            screen_summary=screen_summary,
+            ui_state=ui_state,
+            recent_actions=recent_actions,
+            allowed_names=allowed_names,
+        )
+        if not procedure:
+            return None
+        return ReasoningDecision(
+            decision="execute",
+            task_type=task_type,
+            skill=procedure.skill,
+            args=dict(procedure.args or {}),
+            confidence=procedure.confidence,
+            requires_confirmation=False,
+            reason_summary=procedure.reason_summary,
+            validation_errors=[],
+            selected_backend="procedure",
+            fallback_used=True,
+        )
+
+    @staticmethod
+    def _guided_readiness_decision(
+        goal: str,
+        task_type: str,
+        context_payload: Dict[str, Any],
+    ) -> Optional[ReasoningDecision]:
+        if task_type != TASK_GUIDED_UI_TASK:
+            return None
+        if ReasoningOrchestrator._is_read_only_guided_request(goal):
+            return None
+        ui_state = context_payload.get("ui_state")
+        if not isinstance(ui_state, dict):
+            return None
+        readiness = ui_state.get("readiness")
+        if not isinstance(readiness, dict):
+            return None
+        status = str(readiness.get("status") or "").strip().lower()
+        if status not in {"loading", "uncertain", "blocked"}:
+            return None
+        reason = str(readiness.get("reason") or "The UI is not ready for normal action selection.")
+        return ReasoningDecision(
+            decision="execute",
+            task_type=task_type,
+            skill="wait",
+            args={"seconds": 2, "reason": reason},
+            confidence=0.88,
+            requires_confirmation=False,
+            reason_summary="Readiness gate selected wait: {0}".format(reason),
+            validation_errors=[],
+            selected_backend="readiness",
+            fallback_used=True,
         )
 
     @staticmethod

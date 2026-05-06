@@ -139,9 +139,13 @@ class ADBClient(object):
         start = time.time()
         while time.time() - start < timeout:
             ready_devices = self.list_devices(only_ready=True)
+            if self.device_id:
+                if self.device_id in [item["device_id"] for item in ready_devices]:
+                    return self.device_id
+                time.sleep(1)
+                continue
             if ready_devices:
-                if not self.device_id:
-                    self.device_id = ready_devices[0]["device_id"]
+                self.device_id = ready_devices[0]["device_id"]
                 return self.device_id
             time.sleep(1)
         raise ADBError("No ready adb device was found within {0}s.".format(timeout))

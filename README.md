@@ -1,5 +1,34 @@
 # Mobile-Agent- v0.3
 
+## New Direction: Android Agent Reliability Runtime
+
+This project is being repositioned from "another autonomous mobile agent" into
+a reliability runtime and copilot for Android GUI agents.
+
+Mobile GUI agents often fail silently: they tap while pages are still loading,
+mistake blocked pages for success, repeat useless actions, store one-off
+failures as memory, and leave no reproducible trace. This project adds the
+safety, observability, and recovery layer around an Android execution kernel.
+
+Runtime loop:
+
+```text
+Read screen
+-> Normalize state
+-> Classify readiness
+-> Detect blocker / loop / risk
+-> Propose action
+-> Policy gate
+-> Execute or ask human
+-> Verify progress
+-> Diagnose failure
+-> Store trace
+-> Promote reusable lessons only when validated
+```
+
+The goal is not to make agents act more. The goal is to know when they should
+stop, wait, diagnose, or ask for human handoff.
+
 `Mobile-Agent-` 是一个面向 `Android Studio Emulator + ADB` 的实用型 Android GUI Agent。
 
 它不是“任意 App 任意操作”的全能代理，而是一个强调可维护、可测试、可调试的 emulator-first MVP。当前版本重点是：
@@ -118,6 +147,14 @@ python -m app.main --task "open messages and inspect the current screen" --task-
   SQLite memory
 - [app/skills/](app/skills)
   原子技能集合
+- [app/procedural_skills.py](app/procedural_skills.py)
+  Hermes-style procedural skill layer. It maps normalized UI state into reusable, validated action proposals before model fallback. Keep this layer generic: blocker handling, focused text entry, and search-surface submission belong here; app-specific click scripts should not.
+
+Guided UI reasoning order:
+
+```text
+read_screen -> ui_facts/ui_policy/ui_state -> procedural_skills -> memory/model fallback -> executor -> verifier/diagnostics
+```
 
 ## 页面读取与推理策略
 
@@ -238,6 +275,72 @@ Artifacts are written under:
 data\tmp\chaos\...
 data\tmp\chaos_e2e\...
 ```
+
+### Long-Tail Agent Smoke
+
+Use this when you want a longer mixed run that asks real-ish and randomized goals instead of only one deterministic case. It mixes chaos fixture blockers, real Settings read-only inspection, Chrome random search questions, and one execute-and-verify input E2E.
+
+```powershell
+python scripts\long_tail_agent_smoke.py --iterations 18 --seed 20260502 --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+```
+
+Use the Chrome torture profile when you specifically want messy real web pages
+that can expose blank WebView loads, JS challenges, cookie/captcha blockers,
+and repeated-search mistakes:
+
+```powershell
+python scripts\long_tail_agent_smoke.py --iterations 8 --seed 20260506 --profile chrome_torture --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk" --skip-install
+```
+
+Artifacts are written under:
+
+```powershell
+data\tmp\long_tail\long_tail_<timestamp>_seed_<seed>\long_tail_report.json
+```
+
+The long-tail runner intentionally keeps screenshots, XML, summaries, decisions, and diagnostics for every round. It is meant to expose slow-start windows, transient `uiautomator dump` failures, stale app state, bad target-preparation assumptions, visually unloaded Chrome pages, and web-level blockers such as JS challenges.
+
+### Failure Diagnostics
+
+Agent and harness failures write a stable diagnostic JSON report using schema
+`agent.diagnostic.v1`. The report is designed to be readable first and debuggable
+second:
+
+```json
+{
+  "schema_version": "agent.diagnostic.v1",
+  "status": "fail",
+  "kind": "adb_error | unhandled_exception | agent_result_failure | chaos_harness_failure | chaos_e2e_failure",
+  "human_summary": "Short explanation for humans",
+  "error": {"type": "...", "message": "...", "traceback": "..."},
+  "device": {
+    "requested_device": "emulator-5554",
+    "connected": true,
+    "current_focus": "...",
+    "foreground_package": "...",
+    "top_activity": "...",
+    "crash_log_tail": "..."
+  },
+  "artifacts": {
+    "diagnostic_report_path": "...",
+    "screenshot_path": "...",
+    "ui_dump_path": "...",
+    "screen_summary_path": "..."
+  }
+}
+```
+
+Default diagnostic locations:
+
+```powershell
+data\tmp\diagnostics\...
+data\tmp\chaos\...\diagnostics\diagnostic.json
+data\tmp\chaos_e2e\...\diagnostics\diagnostic.json
+```
+
+`device.crash_log_tail` is the tail of `adb logcat -b crash`; it is useful for
+emulator/app crash clues, but it may include earlier crashes if the buffer was
+not cleared before the run.
 
 ## 安装
 

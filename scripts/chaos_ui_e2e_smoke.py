@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.demo_config import build_demo_message_config
+from app.diagnostics import summarize_for_console, write_failure_diagnostic
 from app.skills.base import SkillContext
 from app.skills.type_text import TypeTextSkill
 from app.state import AgentState
@@ -84,9 +85,31 @@ def run_smoke(
             "reason": "Precondition failed: {0}".format(prepared.get("reason", "unknown")),
             "artifacts_dir": str(case_dir),
         }
+        diagnostic = write_failure_diagnostic(
+            label="chaos_e2e_precondition",
+            kind="chaos_e2e_failure",
+            summary=str(report["reason"]),
+            goal=GOAL,
+            task_type=TASK_TYPE,
+            case="fixture_input_surface_e2e",
+            adb=adb,
+            context={"prepared": prepared, "report": report},
+            artifacts={"artifacts_dir": str(case_dir), "e2e_report_path": str(case_dir / "e2e_report.json")},
+            requested_device=getattr(adb, "device_id", None),
+            runtime_config=build_demo_message_config(),
+            output_dir=case_dir / "diagnostics",
+        )
+        report["diagnostic"] = {
+            "schema_version": diagnostic.get("schema_version"),
+            "human_summary": diagnostic.get("human_summary"),
+            "report_path": diagnostic.get("artifacts", {}).get("diagnostic_report_path"),
+            "screenshot_path": diagnostic.get("artifacts", {}).get("screenshot_path"),
+            "ui_dump_path": diagnostic.get("artifacts", {}).get("ui_dump_path"),
+        }
         (case_dir / "e2e_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report
 
+    runtime_config = build_demo_message_config()
     decision = dry_run_decision(case_dir, GOAL, prepared_state)
     if decision.get("skill") != "type_text":
         report = {
@@ -96,10 +119,30 @@ def run_smoke(
             "decision": decision,
             "artifacts_dir": str(case_dir),
         }
+        diagnostic = write_failure_diagnostic(
+            label="chaos_e2e_bad_decision",
+            kind="chaos_e2e_failure",
+            summary=str(report["reason"]),
+            goal=GOAL,
+            task_type=TASK_TYPE,
+            case="fixture_input_surface_e2e",
+            adb=adb,
+            context={"decision": decision, "report": report},
+            artifacts={"artifacts_dir": str(case_dir), "e2e_report_path": str(case_dir / "e2e_report.json")},
+            requested_device=getattr(adb, "device_id", None),
+            runtime_config=runtime_config,
+            output_dir=case_dir / "diagnostics",
+        )
+        report["diagnostic"] = {
+            "schema_version": diagnostic.get("schema_version"),
+            "human_summary": diagnostic.get("human_summary"),
+            "report_path": diagnostic.get("artifacts", {}).get("diagnostic_report_path"),
+            "screenshot_path": diagnostic.get("artifacts", {}).get("screenshot_path"),
+            "ui_dump_path": diagnostic.get("artifacts", {}).get("ui_dump_path"),
+        }
         (case_dir / "e2e_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report
 
-    runtime_config = build_demo_message_config()
     state = AgentState()
     state.start_task(GOAL, TASK_TYPE)
     state.update_screen_summary(prepared_state["summary"])
@@ -125,6 +168,38 @@ def run_smoke(
         "after_execute_xml_path": after_execute["xml_path"],
         "artifacts_dir": str(case_dir),
     }
+    if not verified:
+        diagnostic = write_failure_diagnostic(
+            label="chaos_e2e_execute_failed",
+            kind="chaos_e2e_failure",
+            summary=str(report["reason"]),
+            goal=GOAL,
+            task_type=TASK_TYPE,
+            case="fixture_input_surface_e2e",
+            adb=adb,
+            state=state,
+            context={
+                "decision": decision,
+                "skill_result": skill_result,
+                "report": report,
+            },
+            artifacts={
+                "artifacts_dir": str(case_dir),
+                "e2e_report_path": str(case_dir / "e2e_report.json"),
+                "after_execute_screenshot_path": after_execute["screenshot_path"],
+                "after_execute_xml_path": after_execute["xml_path"],
+            },
+            requested_device=getattr(adb, "device_id", None),
+            runtime_config=runtime_config,
+            output_dir=case_dir / "diagnostics",
+        )
+        report["diagnostic"] = {
+            "schema_version": diagnostic.get("schema_version"),
+            "human_summary": diagnostic.get("human_summary"),
+            "report_path": diagnostic.get("artifacts", {}).get("diagnostic_report_path"),
+            "screenshot_path": diagnostic.get("artifacts", {}).get("screenshot_path"),
+            "ui_dump_path": diagnostic.get("artifacts", {}).get("ui_dump_path"),
+        }
     (case_dir / "e2e_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
@@ -145,14 +220,46 @@ def main() -> int:
     try:
         adb.ensure_device(timeout=5)
     except ADBError as exc:
-        print("No ready Android device: {0}".format(exc), file=sys.stderr)
+        diagnostic = write_failure_diagnostic(
+            label="chaos_e2e_no_device",
+            kind="adb_error",
+            summary="No ready Android device for chaos E2E smoke.",
+            goal=GOAL,
+            task_type=TASK_TYPE,
+            case="fixture_input_surface_e2e",
+            error=exc,
+            adb=adb,
+            requested_device=args.device_id,
+            exit_code=2,
+            capture_artifacts=False,
+        )
+        print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+        print(summarize_for_console(diagnostic), file=sys.stderr)
         return 2
-    report = run_smoke(
-        adb,
-        Path(args.output_root),
-        fixture_apk=args.fixture_apk,
-        skip_install=args.skip_install,
-    )
+    try:
+        report = run_smoke(
+            adb,
+            Path(args.output_root),
+            fixture_apk=args.fixture_apk,
+            skip_install=args.skip_install,
+        )
+    except Exception as exc:
+        diagnostic = write_failure_diagnostic(
+            label="chaos_e2e_exception",
+            kind="unhandled_exception",
+            summary="Unhandled exception while running chaos E2E smoke.",
+            goal=GOAL,
+            task_type=TASK_TYPE,
+            case="fixture_input_surface_e2e",
+            error=exc,
+            adb=adb,
+            requested_device=args.device_id,
+            exit_code=3,
+            runtime_config=build_demo_message_config(),
+        )
+        print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+        print(summarize_for_console(diagnostic), file=sys.stderr)
+        return 3
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report.get("status") == "pass" else 1
 

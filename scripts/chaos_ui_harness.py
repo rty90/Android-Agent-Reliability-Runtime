@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.demo_config import build_demo_message_config
+from app.diagnostics import summarize_for_console, write_failure_diagnostic
 from app.reasoning_orchestrator import ReasoningOrchestrator
 from app.reasoning_validator import ReasoningValidator
 from app.skills.read_screen import read_screen_summary
@@ -73,7 +74,7 @@ def _find_search_input(summary: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not isinstance(target, dict):
             continue
         combined = _candidate_text(target)
-        if "edittext" not in combined and "url_bar" not in combined and "search" not in combined:
+        if "edittext" not in combined and "url_bar" not in combined and "location_bar" not in combined:
             continue
         score = 0
         if "edittext" in combined:
@@ -151,8 +152,22 @@ def _capture_state(
 ) -> Dict[str, Any]:
     screenshot_path = case_dir / "{0}.png".format(name)
     xml_path = case_dir / "{0}.xml".format(name)
-    adb.screenshot(str(screenshot_path))
-    summary = read_screen_summary(adb, str(xml_path), runtime_config=build_demo_message_config())
+    last_error: Optional[Exception] = None
+    summary: Optional[Dict[str, Any]] = None
+    for attempt in range(1, 4):
+        adb.screenshot(str(screenshot_path))
+        try:
+            summary = read_screen_summary(adb, str(xml_path), runtime_config=build_demo_message_config())
+            break
+        except ADBError as exc:
+            last_error = exc
+            (case_dir / "{0}.read_error_attempt_{1}.txt".format(name, attempt)).write_text(
+                str(exc),
+                encoding="utf-8",
+            )
+            time.sleep(1.5 * attempt)
+    if summary is None:
+        raise last_error or ADBError("Unable to capture UI state.")
     ui_state = normalize_ui_state(goal, TASK_TYPE, summary)
     (case_dir / "{0}.summary.json".format(name)).write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -211,6 +226,7 @@ def install_fixture_if_needed(adb: ADBClient, apk_path: Optional[str], skip_inst
 
 
 def reset_fixture(adb: ADBClient) -> None:
+    adb.force_stop_app(FIXTURE_PACKAGE)
     adb.shell("pm clear {0}".format(FIXTURE_PACKAGE), check=False, timeout=10)
     for permission in ("android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"):
         adb.shell("pm revoke {0} {1}".format(FIXTURE_PACKAGE, permission), check=False, timeout=10)
@@ -223,7 +239,32 @@ def reset_fixture(adb: ADBClient) -> None:
 
 def launch_fixture(adb: ADBClient) -> None:
     adb.shell("am start -n {0}".format(FIXTURE_ACTIVITY), check=True, timeout=10)
-    time.sleep(1.2)
+    _wait_for_fixture_home(adb, timeout_seconds=12.0)
+
+
+def _wait_for_fixture_home(adb: ADBClient, timeout_seconds: float = 10.0) -> None:
+    deadline = time.time() + timeout_seconds
+    probe_path = Path("data/tmp/chaos_fixture_ready.xml")
+    markers = (
+        "Request notification permission",
+        "Open input surface",
+        "Show blocking dialog",
+        "Show loading state",
+    )
+    last_error = ""
+    while time.time() < deadline:
+        try:
+            dump_path = adb.dump_ui_xml(str(probe_path))
+            xml_text = dump_path.read_text(encoding="utf-8", errors="replace")
+            if all(marker in xml_text for marker in ("Open input surface", "Show error state")):
+                return
+            if any(marker in xml_text for marker in markers):
+                return
+            last_error = "fixture markers not visible yet"
+        except Exception as exc:
+            last_error = str(exc)
+        time.sleep(0.8)
+    raise ADBError("Chaos fixture home did not stabilize within {0:.1f}s: {1}".format(timeout_seconds, last_error))
 
 
 def prepare_fixture_button_case(
@@ -493,6 +534,32 @@ def run_case(
             "ui_state": state["ui_state"],
             "artifacts_dir": str(case_dir),
         }
+    if report.get("status") != "pass":
+        diagnostic = write_failure_diagnostic(
+            label="chaos_{0}".format(case_name),
+            kind="chaos_harness_failure",
+            summary=str(report.get("reason") or "Chaos harness case failed."),
+            goal=goal,
+            task_type=TASK_TYPE,
+            case=case_name,
+            adb=adb,
+            context={
+                "case": case_name,
+                "prepared_ok": bool(prepared.get("ok")) if isinstance(prepared, dict) else False,
+                "report": report,
+            },
+            artifacts={"artifacts_dir": str(case_dir), "case_report_path": str(case_dir / "report.json")},
+            requested_device=getattr(adb, "device_id", None),
+            runtime_config=build_demo_message_config(),
+            output_dir=case_dir / "diagnostics",
+        )
+        report["diagnostic"] = {
+            "schema_version": diagnostic.get("schema_version"),
+            "human_summary": diagnostic.get("human_summary"),
+            "report_path": diagnostic.get("artifacts", {}).get("diagnostic_report_path"),
+            "screenshot_path": diagnostic.get("artifacts", {}).get("screenshot_path"),
+            "ui_dump_path": diagnostic.get("artifacts", {}).get("ui_dump_path"),
+        }
     (case_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
@@ -514,17 +581,45 @@ def main() -> int:
     try:
         adb.ensure_device(timeout=5)
     except ADBError as exc:
-        print("No ready Android device: {0}".format(exc), file=sys.stderr)
+        diagnostic = write_failure_diagnostic(
+            label="chaos_no_device",
+            kind="adb_error",
+            summary="No ready Android device for chaos harness.",
+            case=args.case,
+            error=exc,
+            adb=adb,
+            requested_device=args.device_id,
+            exit_code=2,
+            capture_artifacts=False,
+        )
+        print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+        print(summarize_for_console(diagnostic), file=sys.stderr)
         return 2
 
     output_root = Path(args.output_root)
-    report = run_case(
-        adb,
-        args.case,
-        output_root,
-        fixture_apk=args.fixture_apk,
-        skip_install=args.skip_install,
-    )
+    try:
+        report = run_case(
+            adb,
+            args.case,
+            output_root,
+            fixture_apk=args.fixture_apk,
+            skip_install=args.skip_install,
+        )
+    except Exception as exc:
+        diagnostic = write_failure_diagnostic(
+            label="chaos_exception_{0}".format(args.case),
+            kind="unhandled_exception",
+            summary="Unhandled exception while running chaos harness.",
+            case=args.case,
+            error=exc,
+            adb=adb,
+            requested_device=args.device_id,
+            exit_code=3,
+            runtime_config=build_demo_message_config(),
+        )
+        print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+        print(summarize_for_console(diagnostic), file=sys.stderr)
+        return 3
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report.get("status") == "pass" else 1
 

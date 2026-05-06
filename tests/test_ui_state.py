@@ -317,6 +317,40 @@ class UIStateTests(unittest.TestCase):
         self.assertTrue(state["goal_progress"]["done"])
         self.assertEqual(state["goal_progress"]["stage"], "done")
 
+    def test_browser_url_match_without_web_content_is_uncertain_not_complete(self):
+        state = normalize_ui_state(
+            goal="on YouTube mobile web in Chrome, find videos about LLM mobile GUI agents",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.android.chrome",
+                "current_package": "com.android.chrome",
+                "page": "browser_site",
+                "current_domain": "m.youtube.com",
+                "current_url": "https://m.youtube.com/results?search_query=LLM+mobile+GUI+agent+demo",
+                "visible_text": [
+                    "Web View",
+                    "Open the home page",
+                    "Connection is secure",
+                    "m.youtube.com/results?search_query=LLM+mobile+GUI+agent+demo",
+                    "New tab",
+                    "See 20 tabs",
+                ],
+                "possible_targets": [
+                    {
+                        "label": "m.youtube.com/results?search_query=LLM+mobile+GUI+agent+demo",
+                        "resource_id": "com.android.chrome:id/url_bar",
+                        "class_name": "android.widget.EditText",
+                        "clickable": True,
+                        "target_id": "n008",
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(state["readiness"]["status"], "uncertain")
+        self.assertFalse(state["goal_progress"]["done"])
+        self.assertEqual(state["goal_progress"]["stage"], "uncertain")
+
 
 if __name__ == "__main__":
     unittest.main()

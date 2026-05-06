@@ -611,7 +611,7 @@ class ReasoningOrchestratorTests(unittest.TestCase):
             relevant_memories=[],
         )
 
-        self.assertEqual(result["decision"].selected_backend, "rule")
+        self.assertEqual(result["decision"].selected_backend, "procedure")
         self.assertEqual(result["decision"].skill, "search_in_app")
         self.assertEqual(result["decision"].args["query"], "bilibili llm")
         self.assertTrue(result["decision"].args["prefer_intent"])
@@ -663,7 +663,7 @@ class ReasoningOrchestratorTests(unittest.TestCase):
             relevant_memories=[],
         )
 
-        self.assertEqual(result["decision"].selected_backend, "rule")
+        self.assertEqual(result["decision"].selected_backend, "procedure")
         self.assertEqual(result["decision"].skill, "search_in_app")
         self.assertEqual(result["decision"].args["query"], "bilibili llm")
         self.assertEqual(calls["local"], 0)
@@ -711,7 +711,7 @@ class ReasoningOrchestratorTests(unittest.TestCase):
             relevant_memories=[],
         )
 
-        self.assertEqual(result["decision"].selected_backend, "rule")
+        self.assertEqual(result["decision"].selected_backend, "procedure")
         self.assertEqual(result["decision"].skill, "tap")
         self.assertEqual(result["decision"].args["target_id"], "n002")
         self.assertEqual(calls["local"], 0)
@@ -746,7 +746,7 @@ class ReasoningOrchestratorTests(unittest.TestCase):
             relevant_memories=[],
         )
 
-        self.assertEqual(result["decision"].selected_backend, "rule")
+        self.assertEqual(result["decision"].selected_backend, "procedure")
         self.assertEqual(result["decision"].skill, "wait")
         self.assertEqual(result["decision"].args["seconds"], 2)
         self.assertEqual(calls["local"], 0)
@@ -1007,7 +1007,7 @@ class ReasoningOrchestratorTests(unittest.TestCase):
             )
 
         self.assertNotEqual(result["decision"].selected_backend, "interaction_pattern")
-        self.assertEqual(result["decision"].selected_backend, "rule")
+        self.assertEqual(result["decision"].selected_backend, "procedure")
         self.assertEqual(result["decision"].skill, "search_in_app")
         self.assertEqual(result["decision"].args["query"], "bilibili llm")
         self.assertEqual(calls["local"], 0)
@@ -1068,6 +1068,52 @@ class ReasoningOrchestratorTests(unittest.TestCase):
         self.assertEqual(result["decision"].skill, "type_text")
         self.assertEqual(result["decision"].args["text"], "bilibili llm")
         self.assertEqual(calls["local"], 0)
+
+    def test_readiness_gate_waits_on_unobservable_browser_content(self):
+        orchestrator, _trace_path = self._build_orchestrator(cloud_configured=True)
+        calls = {"cloud": 0}
+
+        def fake_cloud(**kwargs):
+            calls["cloud"] += 1
+            return "{}"
+
+        orchestrator._call_openai_compatible_review = fake_cloud
+
+        result = orchestrator.resolve(
+            goal="on YouTube mobile web in Chrome, find videos about LLM mobile GUI agents",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.android.chrome",
+                "current_package": "com.android.chrome",
+                "page": "browser_site",
+                "current_domain": "m.youtube.com",
+                "current_url": "https://m.youtube.com/results?search_query=LLM+mobile+GUI+agent+demo",
+                "visible_text": [
+                    "Web View",
+                    "Open the home page",
+                    "Connection is secure",
+                    "m.youtube.com/results?search_query=LLM+mobile+GUI+agent+demo",
+                    "New tab",
+                    "See 20 tabs",
+                ],
+                "possible_targets": [
+                    {
+                        "label": "m.youtube.com/results?search_query=LLM+mobile+GUI+agent+demo",
+                        "resource_id": "com.android.chrome:id/url_bar",
+                        "class_name": "android.widget.EditText",
+                        "clickable": True,
+                        "target_id": "n008",
+                    }
+                ],
+            },
+            screenshot_path=None,
+            recent_actions=[],
+            relevant_memories=[],
+        )
+
+        self.assertEqual(result["decision"].selected_backend, "readiness")
+        self.assertEqual(result["decision"].skill, "wait")
+        self.assertEqual(calls["cloud"], 0)
 
 
 if __name__ == "__main__":
