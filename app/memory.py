@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from app.lesson_policy import apply_lesson_safety
 from app.task_types import extract_message_body
 
 
@@ -974,6 +975,7 @@ class SQLiteMemory(object):
         steps = procedure.get("steps")
         if not isinstance(steps, list) or not steps:
             return False
+        safe_procedure = apply_lesson_safety(procedure, verified=verified)
         timestamp = self._utc_now_iso()
         intent_key = self._normalize_intent_key(intent)
         with self._managed_connect() as conn:
@@ -1004,7 +1006,7 @@ class SQLiteMemory(object):
                     self._normalize_app_key(app),
                     intent_key,
                     str(title or "").strip()[:160],
-                    json.dumps(procedure, ensure_ascii=False, sort_keys=True),
+                    json.dumps(safe_procedure, ensure_ascii=False, sort_keys=True),
                     json.dumps(list(source_refs or []), ensure_ascii=False, sort_keys=True),
                     float(confidence),
                     1 if verified else 0,

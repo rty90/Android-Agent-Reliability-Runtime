@@ -105,6 +105,7 @@ Important modules:
 - `app/ui_state.py` - normalized UI state and goal-progress assessment.
 - `app/procedural_skills.py` - generic procedure layer for common safe actions.
 - `app/reasoning_orchestrator.py` - action proposer that is now gated by readiness.
+- `app/lesson_policy.py` - conservative raw trace, candidate lesson, and promotion policy.
 - `app/diagnostics.py` - stable failure diagnostic reports.
 - `scripts/chaos_ui_harness.py` - deterministic blocker and overlay regression harness.
 - `scripts/chaos_ui_e2e_smoke.py` - minimal execute-and-verify smoke test.

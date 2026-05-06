@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.memory import SQLiteMemory
+from app.lesson_policy import apply_lesson_safety, evaluate_lesson_evidence
 
 
 def _configure_stdout() -> None:
@@ -164,6 +165,11 @@ def main() -> int:
         action="store_true",
         help="Also distill reflections whose app key is unknown.",
     )
+    parser.add_argument(
+        "--promote",
+        action="store_true",
+        help="Promote distilled candidates to verified operational hints. Use only after human review.",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db)
@@ -199,6 +205,25 @@ def main() -> int:
         if len(procedure.get("steps", [])) < 2:
             skipped += 1
             continue
+        transition = procedure.get("stop_conditions", {})
+        decision = evaluate_lesson_evidence(
+            goal=row["intent"],
+            task_type=row["task_type"],
+            app=row["app"] or "",
+            resolution_label=row["resolution_label"],
+            trigger_reason="manual_reflection",
+            procedure=procedure,
+            verified=row["resolution_label"] == "coach_goal_done",
+            human_approved=bool(args.promote),
+            evidence_count=1,
+            before_visible_text=[],
+            after_visible_text=transition.get("after_visible_text") if isinstance(transition, dict) else [],
+        )
+        procedure = apply_lesson_safety(
+            procedure,
+            decision=decision,
+            verified=decision.should_promote,
+        )
         ok = memory.upsert_learned_procedure(
             task_type=row["task_type"],
             app=row["app"] or "",
@@ -213,8 +238,8 @@ def main() -> int:
                     "resolution_label": row["resolution_label"],
                 }
             ],
-            confidence=min(float(row["confidence"] or 0.85), 0.88),
-            verified=row["resolution_label"] == "coach_goal_done",
+            confidence=min(float(row["confidence"] or 0.85), decision.confidence_cap),
+            verified=decision.should_promote,
         )
         distilled += 1 if ok else 0
 
