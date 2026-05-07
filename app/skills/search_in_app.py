@@ -8,6 +8,7 @@ from app.skills.base import BaseSkill, SkillContext
 from app.skills.read_screen import read_screen_summary
 from app.skills.tap import _find_target
 from app.skills.targeting import find_fallback_target
+from app.ui_facts import find_search_surface
 
 
 SEARCH_TARGETS = ("search", "find")
@@ -47,6 +48,8 @@ def _best_input_target(summary: Mapping[str, Any]) -> Dict[str, Any]:
         if score > best_score:
             best_score = score
             best_target = candidate
+    if not best_target:
+        best_target = find_search_surface(dict(summary)) or {}
     return best_target
 
 

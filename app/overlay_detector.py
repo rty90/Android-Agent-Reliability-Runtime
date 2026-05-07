@@ -24,12 +24,16 @@ def _has_input_target(possible_targets: Iterable[Dict[str, Any]]) -> bool:
         if not isinstance(candidate, dict):
             continue
         class_name = _lower(candidate.get("class_name"))
-        if "edittext" not in class_name:
-            continue
+        is_text_input = "edittext" in class_name or "autocompletetextview" in class_name
+        is_search_surface = "searchview" in class_name
         if bool(candidate.get("focused")):
             return True
         combined = _candidate_text(candidate)
-        if any(marker in combined for marker in ("search", "url", "query", "address", "write here")):
+        if is_search_surface:
+            return True
+        if is_text_input and any(marker in combined for marker in ("search", "url", "query", "address", "write here")):
+            return True
+        if "url_bar" in combined or "location_bar" in combined:
             return True
     return False
 

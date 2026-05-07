@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from app.task_types import TASK_GUIDED_UI_TASK, extract_message_body
 from app.readiness import classify_readiness
-from app.ui_facts import find_primary_input, lower, screen_corpus, text
+from app.ui_facts import find_primary_input, find_search_surface, lower, screen_corpus, text
 from app.ui_policy import detect_blockers
 
 SITE_TERMS = ("bilibili", "youtube", "wikipedia", "amazon", "github", "reddit", "facebook")
@@ -147,7 +147,8 @@ def assess_goal_progress(
                 "next_hint": "Search result state is visible.",
             }
         primary_input = find_primary_input(screen_summary)
-        if primary_input:
+        search_surface = find_search_surface(screen_summary)
+        if primary_input or search_surface:
             return {
                 "stage": "enter_query",
                 "status": "ready",
@@ -184,9 +185,11 @@ def normalize_ui_state(
     recent_actions: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     primary_input = find_primary_input(screen_summary)
+    primary_search_surface = find_search_surface(screen_summary)
     blockers = detect_blockers(screen_summary)
     input_context = None
-    if primary_input and task_type == TASK_GUIDED_UI_TASK and (_goal_looks_search(goal) or bool(extract_message_body(goal))):
+    input_ready_target = primary_input or (primary_search_surface if _goal_looks_search(goal) else None)
+    if input_ready_target and task_type == TASK_GUIDED_UI_TASK and (_goal_looks_search(goal) or bool(extract_message_body(goal))):
         input_overlay_types = ("input_blocking_overlay", "system_handwriting_input_method", "system_input_method")
         input_context_blockers = [
             blocker
@@ -227,6 +230,15 @@ def normalize_ui_state(
             "focused": bool(primary_input.get("focused")),
         }
         if primary_input
+        else None,
+        "primary_search_surface": {
+            "label": primary_search_surface.get("label"),
+            "target_id": primary_search_surface.get("target_id"),
+            "resource_id": primary_search_surface.get("resource_id"),
+            "class_name": primary_search_surface.get("class_name"),
+            "focused": bool(primary_search_surface.get("focused")),
+        }
+        if primary_search_surface
         else None,
         "input_context": input_context,
         "goal_progress": progress,

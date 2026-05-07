@@ -11,6 +11,7 @@ from app.demo_config import DemoMessageConfig
 from app.overlay_detector import detect_system_overlay
 from app.skills.base import BaseSkill, SkillContext
 from app.skills.targeting import normalize_text
+from app.ui_facts import find_search_surface
 
 
 def _parse_bounds(bounds: str) -> Optional[Dict[str, int]]:
@@ -160,6 +161,8 @@ def _detect_browser_page(
 
 
 def _should_probe_system_overlay(summary: Dict[str, Any]) -> bool:
+    if find_search_surface(summary):
+        return True
     for candidate in summary.get("possible_targets", []):
         if not isinstance(candidate, dict):
             continue

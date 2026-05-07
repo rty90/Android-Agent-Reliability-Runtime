@@ -68,6 +68,35 @@ class SearchInAppSkillTests(unittest.TestCase):
         self.assertEqual(adb.input_history, [])
         self.assertEqual(adb.tap_history, [])
 
+    def test_web_searchview_surface_prefers_intent_search(self):
+        adb = MockSearchADB()
+        summary = {
+            "app": "com.android.chrome",
+            "page": "browser_site",
+            "focus": "mCurrentFocus=Window{123 u0 com.android.chrome/.Main}",
+            "visible_text": ["Google Search"],
+            "possible_targets": [
+                {
+                    "label": "tsf",
+                    "resource_id": "tsf",
+                    "class_name": "android.widget.SearchView",
+                    "clickable": False,
+                    "focusable": False,
+                    "focused": False,
+                }
+            ],
+        }
+        context = DummyContext(adb, summary)
+
+        result = SearchInAppSkill().execute({"query": "llm"}, context)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(len(adb.url_history), 1)
+        self.assertEqual(adb.url_history[0]["url"], "https://www.google.com/search?q=llm")
+        self.assertEqual(adb.url_history[0]["package_name"], "com.android.chrome")
+        self.assertEqual(adb.input_history, [])
+        self.assertEqual(adb.tap_history, [])
+
 
 if __name__ == "__main__":
     unittest.main()

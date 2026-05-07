@@ -60,6 +60,28 @@ class OverlayDetectorTests(unittest.TestCase):
         self.assertGreaterEqual(overlay["confidence"], 0.8)
         self.assertEqual(overlay["package"], "com.google.android.inputmethod.latin")
 
+    def test_detects_handwriting_input_method_overlay_for_web_searchview(self):
+        summary = {
+            "possible_targets": [
+                {
+                    "label": "tsf",
+                    "resource_id": "tsf",
+                    "class_name": "android.widget.SearchView",
+                    "focused": False,
+                }
+            ]
+        }
+
+        overlay = detect_system_overlay(
+            summary,
+            window_dump=WINDOW_DUMP_WITH_IME,
+            input_method_dump=INPUT_METHOD_DUMP_WITH_HANDWRITING,
+        )
+
+        self.assertTrue(overlay["present"])
+        self.assertTrue(overlay["blocks_input"])
+        self.assertEqual(overlay["type"], "handwriting_input_method")
+
     def test_ignores_input_method_window_without_app_input_target(self):
         overlay = detect_system_overlay(
             {"possible_targets": [{"label": "Trending searches", "class_name": "android.widget.TextView"}]},

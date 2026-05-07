@@ -111,6 +111,49 @@ class ProceduralSkillTests(unittest.TestCase):
         self.assertEqual(decision.skill, "search_in_app")
         self.assertEqual(decision.args["query"], "bilibili llm")
 
+    def test_resolves_web_searchview_to_search_intent_without_backing_out(self):
+        screen_summary = {
+            "app": "com.android.chrome",
+            "page": "browser_site",
+            "current_domain": "google.com",
+            "current_url": "https://google.com",
+            "visible_text": ["Google Search", "Try out your stylus", "Cancel", "Next"],
+            "possible_targets": [
+                {
+                    "label": "tsf",
+                    "resource_id": "tsf",
+                    "class_name": "android.widget.SearchView",
+                    "clickable": False,
+                    "focusable": False,
+                    "focused": False,
+                    "target_id": "n025",
+                }
+            ],
+            "system_overlay": {
+                "present": True,
+                "type": "handwriting_input_method",
+                "blocks_input": True,
+                "recommended_recovery": "back",
+            },
+        }
+        ui_state = normalize_ui_state(
+            goal="open chrome and search for llm",
+            task_type="guided_ui_task",
+            screen_summary=screen_summary,
+        )
+
+        decision = resolve_guided_ui_procedure(
+            goal="open chrome and search for llm",
+            task_type="guided_ui_task",
+            screen_summary=screen_summary,
+            ui_state=ui_state,
+        )
+
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.name, "browser_search_via_intent")
+        self.assertEqual(decision.skill, "search_in_app")
+        self.assertEqual(decision.args["query"], "llm")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@ from app.reasoning_orchestrator import ReasoningOrchestrator
 from app.reasoning_validator import ReasoningValidator
 from app.skills.read_screen import read_screen_summary
 from app.trace_bus import TraceBus
+from app.ui_facts import find_search_surface
 from app.ui_state import normalize_ui_state
 from app.utils.adb import ADBClient, ADBError
 
@@ -68,6 +69,9 @@ def _candidate_text(candidate: Dict[str, Any]) -> str:
 
 
 def _find_search_input(summary: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    search_surface = find_search_surface(summary)
+    if search_surface:
+        return search_surface
     best_target = None
     best_score = -1
     for target in summary.get("possible_targets", []):

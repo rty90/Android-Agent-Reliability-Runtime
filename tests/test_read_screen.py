@@ -142,6 +142,29 @@ class ReadScreenTests(unittest.TestCase):
         self.assertTrue(summary["system_overlay"]["blocks_input"])
         self.assertEqual(summary["system_overlay"]["type"], "handwriting_input_method")
 
+    def test_read_screen_probes_overlay_for_web_searchview_surface(self):
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy>
+  <node text="" resource-id="" package="com.android.chrome" clickable="false" bounds="[0,0][1280,2856]" class="android.widget.FrameLayout" />
+  <node text="tsf" resource-id="tsf" package="com.android.chrome" clickable="false" focusable="false" focused="false" bounds="[24,1107][1257,1260]" class="android.widget.SearchView" />
+</hierarchy>
+"""
+        summary = read_screen_summary(
+            ReadScreenADB(
+                xml,
+                shell_outputs={
+                    "dumpsys window": "Window #7 Window{abc u0 InputMethod}\nmImeShowing=true",
+                    "dumpsys input_method": "isStylusHandwritingEnabled=true",
+                },
+            ),
+            "tmp/test_dbs/chrome_searchview_overlay.xml",
+            runtime_config=build_demo_message_config(),
+        )
+
+        self.assertTrue(summary["system_overlay"]["present"])
+        self.assertTrue(summary["system_overlay"]["blocks_input"])
+        self.assertEqual(summary["system_overlay"]["type"], "handwriting_input_method")
+
 
 if __name__ == "__main__":
     unittest.main()

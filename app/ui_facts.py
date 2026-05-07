@@ -67,6 +67,43 @@ def find_primary_input(screen_summary: Dict[str, Any]) -> Optional[Dict[str, Any
     return best
 
 
+def find_search_surface(screen_summary: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    best: Optional[Dict[str, Any]] = None
+    best_score = -1
+    for candidate in screen_summary.get("possible_targets", []):
+        if not isinstance(candidate, dict):
+            continue
+        combined = candidate_text(candidate)
+        class_name = lower(candidate.get("class_name"))
+        is_text_input = "edittext" in class_name or "autocompletetextview" in class_name
+        is_search_view = "searchview" in class_name
+        is_browser_location = "url_bar" in combined or "location_bar" in combined
+        has_search_language = any(
+            marker in combined
+            for marker in ("search", "query", "address", "find", "type url", "type here")
+        )
+        if not (is_text_input or is_search_view or is_browser_location or has_search_language):
+            continue
+
+        score = 0
+        if bool(candidate.get("focused")):
+            score += 5
+        if is_browser_location:
+            score += 5
+        if is_text_input:
+            score += 4
+        if is_search_view:
+            score += 4
+        if has_search_language:
+            score += 2
+        if bool(candidate.get("clickable")) or bool(candidate.get("focusable")):
+            score += 1
+        if score > best_score:
+            best_score = score
+            best = candidate
+    return best
+
+
 def action_from_candidate(skill: str, candidate: Dict[str, Any]) -> Dict[str, Any]:
     target = candidate.get("label") or candidate.get("content_desc") or candidate.get("resource_id") or ""
     args: Dict[str, Any] = {"target": target}

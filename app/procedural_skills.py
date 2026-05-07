@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from app.task_types import TASK_GUIDED_UI_TASK, extract_message_body
-from app.ui_facts import candidate_text, find_primary_input, lower
+from app.ui_facts import candidate_text, find_primary_input, find_search_surface, lower
 from app.ui_state import _extract_search_query, _goal_looks_search
 
 
@@ -58,6 +58,11 @@ def build_procedure_registry() -> List[Procedure]:
             matcher=_match_clear_primary_blocker,
         ),
         Procedure(
+            name="browser_search_via_visible_search_surface",
+            description="Use a safe browser search intent when a web search surface is visible but not necessarily an EditText.",
+            matcher=_match_browser_search_surface,
+        ),
+        Procedure(
             name="enter_text_into_focused_input",
             description="When a usable input is available, enter quoted text or a synthesized search query.",
             matcher=_match_enter_text_into_input,
@@ -89,6 +94,30 @@ def _match_clear_primary_blocker(
         args=dict(args),
         confidence=0.93,
         reason_summary="Procedure clear_primary_blocker selected: {0}.".format(blocker_type),
+    )
+
+
+def _match_browser_search_surface(
+    goal: str,
+    task_type: str,
+    screen_summary: Mapping[str, Any],
+    ui_state: Mapping[str, Any],
+    recent_actions: Sequence[Mapping[str, Any]],
+) -> Optional[ProcedureDecision]:
+    if ui_state.get("primary_blocker") or not _goal_looks_search(goal):
+        return None
+    text = _extract_search_query(goal)
+    if not text:
+        return None
+    surface = _find_search_target(screen_summary, ui_state)
+    if not surface or not _looks_like_browser_search_surface(screen_summary, surface):
+        return None
+    return ProcedureDecision(
+        name="browser_search_via_intent",
+        skill="search_in_app",
+        args={"query": text, "prefer_intent": True, "press_enter": True},
+        confidence=0.92,
+        reason_summary="Procedure browser_search_via_intent selected for a visible browser search surface.",
     )
 
 
@@ -171,6 +200,21 @@ def _find_input_target(
             if isinstance(candidate, dict) and str(candidate.get("target_id") or "").strip() == primary_target_id:
                 return candidate
     return find_primary_input(dict(screen_summary))
+
+
+def _find_search_target(
+    screen_summary: Mapping[str, Any],
+    ui_state: Mapping[str, Any],
+) -> Optional[Dict[str, Any]]:
+    primary = ui_state.get("primary_search_surface")
+    primary_target_id = ""
+    if isinstance(primary, Mapping):
+        primary_target_id = str(primary.get("target_id") or "").strip()
+    if primary_target_id:
+        for candidate in screen_summary.get("possible_targets", []):
+            if isinstance(candidate, dict) and str(candidate.get("target_id") or "").strip() == primary_target_id:
+                return candidate
+    return find_search_surface(dict(screen_summary))
 
 
 def _looks_like_search_input(input_target: Mapping[str, Any]) -> bool:

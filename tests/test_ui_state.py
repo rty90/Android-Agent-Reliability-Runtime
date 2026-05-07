@@ -53,6 +53,43 @@ class UIStateTests(unittest.TestCase):
         self.assertEqual(state["input_context"]["suppressed_blockers"][0]["source"], "system_overlay")
         self.assertEqual(state["goal_progress"]["stage"], "enter_query")
 
+    def test_web_searchview_counts_as_search_surface_despite_input_overlay(self):
+        state = normalize_ui_state(
+            goal="open chrome and search for llm",
+            task_type="guided_ui_task",
+            screen_summary={
+                "app": "com.android.chrome",
+                "page": "browser_site",
+                "current_domain": "google.com",
+                "current_url": "https://google.com",
+                "visible_text": ["Google Search", "Try out your stylus", "Write here", "Cancel", "Next"],
+                "possible_targets": [
+                    {
+                        "label": "tsf",
+                        "resource_id": "tsf",
+                        "class_name": "android.widget.SearchView",
+                        "clickable": False,
+                        "focusable": False,
+                        "focused": False,
+                        "target_id": "n025",
+                    }
+                ],
+                "system_overlay": {
+                    "present": True,
+                    "scope": "system",
+                    "type": "handwriting_input_method",
+                    "blocks_input": True,
+                    "confidence": 0.88,
+                    "recommended_recovery": "back",
+                },
+            },
+        )
+
+        self.assertIsNone(state["primary_blocker"])
+        self.assertEqual(state["input_context"]["type"], "input_method_overlay")
+        self.assertEqual(state["goal_progress"]["stage"], "enter_query")
+        self.assertEqual(state["primary_search_surface"]["target_id"], "n025")
+
     def test_treats_system_input_overlay_as_text_entry_context(self):
         state = normalize_ui_state(
             goal='enter "hello chaos" into the input surface',
