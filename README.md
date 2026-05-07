@@ -282,6 +282,25 @@ data\tmp\long_tail\long_tail_<timestamp>_seed_<seed>\long_tail_report.json
 The long-tail runner keeps screenshots, XML, summaries, decisions, and
 diagnostics for every round.
 
+## Run Report Dashboard
+
+Use the report summarizer after smoke tests to inspect recent chaos, E2E,
+long-tail, and diagnostic artifacts without manually opening every folder:
+
+```powershell
+python scripts\summarize_runs.py --latest 10
+```
+
+Useful variants:
+
+```powershell
+python scripts\summarize_runs.py --latest 20 --failures-only
+python scripts\summarize_runs.py --latest 10 --json
+```
+
+The summary shows pass/fail counts, readiness labels, selected skills, failure
+labels, false-success risk, report paths, and artifact directories.
+
 ## Failure Diagnostics
 
 Agent and harness failures write a stable diagnostic JSON report using schema
