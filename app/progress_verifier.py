@@ -1,3 +1,10 @@
+"""Progress guards for separating executed actions from useful progress.
+
+The executor can know that a tap or text input command ran, but this module
+tracks whether the action changed the task stage or visible state. That
+distinction is the main defense against false success and action loops.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -57,6 +64,8 @@ def build_action_guard(
     screen_summary: Dict[str, Any],
     recent_actions: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    """Snapshot the action and current task stage before execution."""
+
     ui_state = normalize_ui_state(
         goal=goal,
         task_type=task_type,
@@ -78,6 +87,8 @@ def detect_repeated_no_progress(
     task_type: str,
     recent_actions: Sequence[Dict[str, Any]],
 ) -> Optional[str]:
+    """Return a human-readable loop warning when recent guarded actions stall."""
+
     if task_type != TASK_GUIDED_UI_TASK:
         return None
     guarded_events = []

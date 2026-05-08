@@ -1,3 +1,10 @@
+"""Policy detectors for UI states that should gate normal agent actions.
+
+The detectors in this file intentionally produce generic blocker records:
+type, severity, reason, evidence, and a suggested safe action. They should not
+encode a full task plan; the orchestrator and verifier decide what to do next.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -187,6 +194,8 @@ def _system_overlay_blocker(screen_summary: Dict[str, Any]) -> Optional[Dict[str
 
 
 def detect_blockers(screen_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collect blockers from strongest signal to weaker content heuristics."""
+
     corpus = screen_corpus(screen_summary)
     blockers: List[Dict[str, Any]] = []
     if _looks_like_stylus_overlay(corpus):

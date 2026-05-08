@@ -1,3 +1,10 @@
+"""Measure the runtime's stable capability ceiling with staged smoke tests.
+
+The ladder intentionally separates simple readiness checks from endurance
+runs. When a high level fails, the report should point to the first unstable
+layer instead of collapsing everything into one vague long-tail failure.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -186,6 +193,8 @@ def _run_endurance(ctx: LadderContext, output_root: Path, rng: random.Random) ->
 
 
 def build_ladder_levels() -> List[LadderLevel]:
+    """Define levels from low-risk observation to mixed endurance."""
+
     return [
         LadderLevel(
             level_id="L1",
@@ -256,6 +265,8 @@ def select_levels(levels: Sequence[LadderLevel], requested: str) -> List[LadderL
 
 
 def summarize_level(level: LadderLevel, results: Sequence[Dict[str, Any]], pass_threshold: float) -> Dict[str, Any]:
+    """Summarize one ladder level without hiding false-success risk."""
+
     passed = sum(1 for item in results if _case_status(item) == "pass")
     failed = len(results) - passed
     false_success_risk = sum(_false_success_risk(item) for item in results)
@@ -302,6 +313,8 @@ def run_capability_ladder(
     endurance_iterations: int,
     pass_threshold: float,
 ) -> Dict[str, Any]:
+    """Run selected levels and write a report with the first unstable layer."""
+
     rng = random.Random(seed)
     run_dir = output_root / "ladder_{0}_{1}".format(_timestamp(), seed)
     run_dir.mkdir(parents=True, exist_ok=True)

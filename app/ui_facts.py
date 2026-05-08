@@ -1,3 +1,11 @@
+"""Low-level UI fact helpers shared by policy and reasoning layers.
+
+This module should stay mostly descriptive: it extracts reusable affordances
+from a screen summary, but it should not decide whether an action is safe or
+whether a task is complete. Keeping those boundaries separate makes later
+policy changes easier to review.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Sequence
@@ -68,6 +76,8 @@ def find_primary_input(screen_summary: Dict[str, Any]) -> Optional[Dict[str, Any
 
 
 def find_search_surface(screen_summary: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return the best visible search-like control without deciding intent."""
+
     best: Optional[Dict[str, Any]] = None
     best_score = -1
     for candidate in screen_summary.get("possible_targets", []):

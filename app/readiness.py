@@ -1,3 +1,10 @@
+"""Readiness classification for deciding whether normal actions are allowed.
+
+This layer is deliberately conservative. When the UI cannot be observed
+reliably, it should return `uncertain` instead of letting a model hallucinate
+progress from partial evidence.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional

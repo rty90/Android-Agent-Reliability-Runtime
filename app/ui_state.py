@@ -1,3 +1,10 @@
+"""Normalize raw screen summaries into the runtime state contract.
+
+`normalize_ui_state` is the handoff point between screen reading, policy,
+readiness, procedural skills, and progress verification. Keep this layer
+compact: it should compose facts and labels, not grow into a second executor.
+"""
+
 from __future__ import annotations
 
 import re
@@ -184,6 +191,8 @@ def normalize_ui_state(
     screen_summary: Dict[str, Any],
     recent_actions: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    """Build a stable state object that downstream gates can compare."""
+
     primary_input = find_primary_input(screen_summary)
     primary_search_surface = find_search_surface(screen_summary)
     blockers = detect_blockers(screen_summary)

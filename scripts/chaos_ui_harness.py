@@ -1,3 +1,10 @@
+"""Deterministic ADB harness for reproducing UI reliability failures.
+
+The harness captures screen state, asks the runtime for a dry-run decision, and
+asserts policy-level expectations. It should stay deterministic so failures can
+be compared across commits instead of becoming another flaky demo script.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -505,6 +512,8 @@ def run_case(
     fixture_apk: Optional[str] = None,
     skip_install: bool = False,
 ) -> Dict[str, Any]:
+    """Prepare one fixture/browser scenario and validate the proposed action."""
+
     if case_name not in CASES:
         raise ValueError("Unknown chaos case: {0}".format(case_name))
     case = CASES[case_name]

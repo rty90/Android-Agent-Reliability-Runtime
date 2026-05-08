@@ -1,3 +1,10 @@
+"""Small deterministic procedures that can safely outrank model proposals.
+
+Procedures are intentionally narrow and evidence-driven. They are useful when
+the UI state already exposes a clear safe move, but they should remain
+auditable hints rather than a hidden app-specific automation layer.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -51,6 +58,8 @@ def resolve_guided_ui_procedure(
 
 
 def build_procedure_registry() -> List[Procedure]:
+    """Order matters: blockers first, then task-directed input procedures."""
+
     return [
         Procedure(
             name="clear_primary_blocker",
