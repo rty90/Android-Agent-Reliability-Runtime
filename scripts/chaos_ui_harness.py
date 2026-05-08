@@ -28,7 +28,8 @@ TASK_TYPE = "guided_ui_task"
 CHROME_PACKAGE = "com.android.chrome"
 FIXTURE_PACKAGE = "com.example.chaosfixture"
 FIXTURE_ACTIVITY = "com.example.chaosfixture/.MainActivity"
-DEFAULT_FIXTURE_APK = r"F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+FIXTURE_APK_ENV = "CHAOS_FIXTURE_APK"
+DEFAULT_FIXTURE_APK = os.environ.get(FIXTURE_APK_ENV, "")
 
 
 class DryRunRuntime(object):
@@ -223,7 +224,10 @@ def prepare_chrome_search_stylus_overlay(adb: ADBClient, case_dir: Path, goal: s
 def install_fixture_if_needed(adb: ADBClient, apk_path: Optional[str], skip_install: bool = False) -> None:
     if skip_install:
         return
-    apk = Path(apk_path or os.environ.get("CHAOS_FIXTURE_APK") or DEFAULT_FIXTURE_APK)
+    apk_value = apk_path or os.environ.get(FIXTURE_APK_ENV) or DEFAULT_FIXTURE_APK
+    if not apk_value:
+        raise ADBError("Chaos fixture APK path is required. Pass --fixture-apk or set {0}.".format(FIXTURE_APK_ENV))
+    apk = Path(apk_value)
     if not apk.exists():
         raise ADBError("Chaos fixture APK not found: {0}".format(apk))
     adb.run("install", "-r", str(apk), check=True, timeout=90)

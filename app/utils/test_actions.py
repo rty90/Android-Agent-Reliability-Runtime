@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.utils.adb import ADBClient, ADBError
 from app.utils.device_actions import DeviceActions
 
@@ -25,7 +27,7 @@ def main() -> None:
         actions.sleep(2)
 
         print("3. Capture screenshot")
-        save_path = actions.screenshot(r"F:\mobile agents\tmp\screen1.png")
+        save_path = actions.screenshot(str(Path("data/tmp/manual_screen1.png")))
         print("Saved screenshot:", save_path)
     except ADBError as exc:
         print("ADBError:", exc)

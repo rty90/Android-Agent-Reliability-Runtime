@@ -214,38 +214,39 @@ The chaos harness is a deterministic ADB regression tool for UI blockers:
 - stylus / IME overlays
 - Chrome search overlay cases
 
-Default fixture APK path used during development:
+Set these values for your own machine before running the examples:
 
 ```powershell
-F:\virtualver\app\build\outputs\apk\debug\app-debug.apk
+$env:ADB_PATH="<path-to-adb-executable>"
+$env:DEVICE_ID="<adb-device-id>"
+$env:FIXTURE_APK="<path-to-chaos-fixture-apk>"
 ```
 
-Example ADB path on Windows:
-
-```powershell
-C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe
-```
+Build or download the chaos fixture app first, then point `FIXTURE_APK` at the
+generated debug APK. The examples intentionally use placeholders instead of
+machine-specific absolute paths. If you prefer to omit `--fixture-apk`, set
+`CHAOS_FIXTURE_APK` to the same APK path.
 
 Run one dry-run decision case:
 
 ```powershell
-python scripts\chaos_ui_harness.py --case fixture_input_surface --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+python scripts\chaos_ui_harness.py --case fixture_input_surface --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK"
 ```
 
 Recommended smoke cases:
 
 ```powershell
-python scripts\chaos_ui_harness.py --case fixture_notification_permission --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
-python scripts\chaos_ui_harness.py --case fixture_input_surface --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
-python scripts\chaos_ui_harness.py --case fixture_loading_state --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
-python scripts\chaos_ui_harness.py --case fixture_error_state --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
-python scripts\chaos_ui_harness.py --case chrome_search_stylus_overlay --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+python scripts\chaos_ui_harness.py --case fixture_notification_permission --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK"
+python scripts\chaos_ui_harness.py --case fixture_input_surface --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK"
+python scripts\chaos_ui_harness.py --case fixture_loading_state --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK"
+python scripts\chaos_ui_harness.py --case fixture_error_state --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK"
+python scripts\chaos_ui_harness.py --case chrome_search_stylus_overlay --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH"
 ```
 
 Run the minimal execute-and-verify E2E smoke:
 
 ```powershell
-python scripts\chaos_ui_e2e_smoke.py --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+python scripts\chaos_ui_e2e_smoke.py --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK"
 ```
 
 Artifacts are written under:
@@ -262,7 +263,7 @@ It mixes chaos fixture blockers, real Settings read-only inspection, Chrome
 random search questions, and one execute-and-verify input E2E.
 
 ```powershell
-python scripts\long_tail_agent_smoke.py --iterations 18 --seed 20260502 --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk"
+python scripts\long_tail_agent_smoke.py --iterations 18 --seed 20260502 --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK"
 ```
 
 Use the Chrome torture profile for messy real web pages that can expose blank
@@ -270,7 +271,7 @@ WebView loads, JS challenges, cookie/captcha blockers, and repeated-search
 mistakes:
 
 ```powershell
-python scripts\long_tail_agent_smoke.py --iterations 8 --seed 20260506 --profile chrome_torture --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk" --skip-install
+python scripts\long_tail_agent_smoke.py --iterations 8 --seed 20260506 --profile chrome_torture --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK" --skip-install
 ```
 
 Artifacts are written under:
@@ -298,13 +299,13 @@ The ladder is staged from simple readiness checks to mixed endurance:
 Run the full ladder:
 
 ```powershell
-python scripts\capability_ladder_smoke.py --level all --repeats 1 --seed 20260507 --endurance-iterations 8 --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk" --skip-install
+python scripts\capability_ladder_smoke.py --level all --repeats 1 --seed 20260507 --endurance-iterations 8 --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK" --skip-install
 ```
 
 Run a single level while debugging:
 
 ```powershell
-python scripts\capability_ladder_smoke.py --level L4 --repeats 1 --seed 20260507 --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk" --skip-install
+python scripts\capability_ladder_smoke.py --level L4 --repeats 1 --seed 20260507 --device-id "$env:DEVICE_ID" --adb-path "$env:ADB_PATH" --fixture-apk "$env:FIXTURE_APK" --skip-install
 ```
 
 The report includes `max_stable_level`, `first_failed_level`, per-level pass
@@ -351,7 +352,7 @@ Example shape:
   "human_summary": "Short explanation for humans",
   "error": {"type": "...", "message": "...", "traceback": "..."},
   "device": {
-    "requested_device": "emulator-5554",
+    "requested_device": "<device-id>",
     "connected": true,
     "current_focus": "...",
     "foreground_package": "...",
