@@ -128,6 +128,52 @@ class SummarizeRunsTests(unittest.TestCase):
         self.assertEqual(records[0].false_success_risk, 1)
         self.assertEqual(summary["false_success_risk"], 1)
 
+    def test_summarizes_capability_ladder_report(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "capability_ladder" / "ladder_test"
+            run_dir.mkdir(parents=True)
+            (run_dir / "capability_ladder_report.json").write_text(
+                json.dumps(
+                    {
+                        "case": "capability_ladder_smoke",
+                        "status": "pass",
+                        "max_stable_level": "L6",
+                        "levels": [
+                            {
+                                "level_id": "L4",
+                                "status": "pass",
+                                "passed": 2,
+                                "failed": 0,
+                                "case_count": 2,
+                                "false_success_risk": 0,
+                                "failure_labels": {},
+                                "cases": [
+                                    {
+                                        "status": "pass",
+                                        "readiness": {"status": "ready", "label": "ready"},
+                                        "decision": {"skill": "search_in_app"},
+                                    }
+                                ],
+                            }
+                        ],
+                        "artifacts_dir": str(run_dir),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            records = load_records([root], latest=5)
+            summary = summarize_records(records)
+            rendered = render_text_summary(records)
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].report_type, "capability_ladder")
+        self.assertEqual(records[0].passed, 2)
+        self.assertEqual(records[0].backend, "L6")
+        self.assertEqual(summary["passed"], 2)
+        self.assertIn("max_stable_level=L6", rendered)
+
     def test_failures_only_filters_successes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

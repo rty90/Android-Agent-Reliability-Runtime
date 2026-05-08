@@ -231,14 +231,28 @@ def install_fixture_if_needed(adb: ADBClient, apk_path: Optional[str], skip_inst
 
 def reset_fixture(adb: ADBClient) -> None:
     adb.force_stop_app(FIXTURE_PACKAGE)
-    adb.shell("pm clear {0}".format(FIXTURE_PACKAGE), check=False, timeout=10)
+    _shell_best_effort(adb, "pm clear {0}".format(FIXTURE_PACKAGE), timeout=25, attempts=3)
     for permission in ("android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"):
-        adb.shell("pm revoke {0} {1}".format(FIXTURE_PACKAGE, permission), check=False, timeout=10)
-        adb.shell(
+        _shell_best_effort(adb, "pm revoke {0} {1}".format(FIXTURE_PACKAGE, permission), timeout=15, attempts=2)
+        _shell_best_effort(
+            adb,
             "pm clear-permission-flags {0} {1} user-set user-fixed".format(FIXTURE_PACKAGE, permission),
-            check=False,
-            timeout=10,
+            timeout=15,
+            attempts=2,
         )
+
+
+def _shell_best_effort(adb: ADBClient, command: str, timeout: int, attempts: int) -> None:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            adb.shell(command, check=False, timeout=timeout)
+            return
+        except Exception as exc:
+            last_error = exc
+            time.sleep(min(1.5 * attempt, 4.0))
+    if last_error:
+        raise last_error
 
 
 def launch_fixture(adb: ADBClient) -> None:

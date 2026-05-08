@@ -282,10 +282,45 @@ data\tmp\long_tail\long_tail_<timestamp>_seed_<seed>\long_tail_report.json
 The long-tail runner keeps screenshots, XML, summaries, decisions, and
 diagnostics for every round.
 
+## Capability Ladder Smoke
+
+Use the capability ladder when you want to measure the runtime's current
+verified ceiling instead of running one giant task with an ambiguous failure.
+The ladder is staged from simple readiness checks to mixed endurance:
+
+- `L1` readiness baseline
+- `L2` blocker policy
+- `L3` verified execution
+- `L4` browser search surfaces and IME/stylus overlays
+- `L5` complex mobile web pages
+- `L6` mixed endurance
+
+Run the full ladder:
+
+```powershell
+python scripts\capability_ladder_smoke.py --level all --repeats 1 --seed 20260507 --endurance-iterations 8 --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk" --skip-install
+```
+
+Run a single level while debugging:
+
+```powershell
+python scripts\capability_ladder_smoke.py --level L4 --repeats 1 --seed 20260507 --device-id emulator-5554 --adb-path "C:\Users\zhufe\AppData\Local\Android\Sdk\platform-tools\adb.exe" --fixture-apk "F:\virtualver\app\build\outputs\apk\debug\app-debug.apk" --skip-install
+```
+
+The report includes `max_stable_level`, `first_failed_level`, per-level pass
+rates, false-success risk, failure labels, and artifact directories.
+
+Artifacts are written under:
+
+```powershell
+data\tmp\capability_ladder\ladder_<timestamp>_<seed>\capability_ladder_report.json
+```
+
 ## Run Report Dashboard
 
 Use the report summarizer after smoke tests to inspect recent chaos, E2E,
-long-tail, and diagnostic artifacts without manually opening every folder:
+long-tail, capability ladder, and diagnostic artifacts without manually opening
+every folder:
 
 ```powershell
 python scripts\summarize_runs.py --latest 10

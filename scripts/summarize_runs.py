@@ -15,12 +15,14 @@ DEFAULT_REPORT_ROOTS = (
     Path("data/tmp/chaos"),
     Path("data/tmp/chaos_e2e"),
     Path("data/tmp/long_tail"),
+    Path("data/tmp/capability_ladder"),
     Path("data/tmp/diagnostics"),
 )
 REPORT_NAMES = {
     "report.json",
     "e2e_report.json",
     "long_tail_report.json",
+    "capability_ladder_report.json",
     "diagnostic.json",
 }
 FAIL_STATUSES = {"fail", "failed", "error", "timeout"}
@@ -104,6 +106,8 @@ def _primary_blocker_label(payload: Mapping[str, Any]) -> str:
 
 
 def _report_type(path: Path, payload: Mapping[str, Any]) -> str:
+    if path.name == "capability_ladder_report.json":
+        return "capability_ladder"
     if path.name == "long_tail_report.json":
         return "long_tail"
     if path.name == "e2e_report.json":
@@ -111,6 +115,59 @@ def _report_type(path: Path, payload: Mapping[str, Any]) -> str:
     if path.name == "diagnostic.json" or payload.get("schema_version") == "agent.diagnostic.v1":
         return "diagnostic"
     return "chaos"
+
+
+def _capability_ladder_record(path: Path, payload: Mapping[str, Any]) -> RunRecord:
+    levels = payload.get("levels") if isinstance(payload.get("levels"), list) else []
+    passed = 0
+    failed = 0
+    subcase_count = 0
+    false_success_risk = 0
+    readiness_counter: Counter[str] = Counter()
+    failure_counter: Counter[str] = Counter()
+    skill_counter: Counter[str] = Counter()
+    for level in levels:
+        if not isinstance(level, Mapping):
+            continue
+        passed += int(level.get("passed") or 0)
+        failed += int(level.get("failed") or 0)
+        subcase_count += int(level.get("case_count") or 0)
+        false_success_risk += int(level.get("false_success_risk") or 0)
+        failure_labels = level.get("failure_labels")
+        if isinstance(failure_labels, Mapping):
+            for label, count in failure_labels.items():
+                failure_counter[_as_text(label)] += int(count or 0)
+        for case in level.get("cases") or []:
+            if not isinstance(case, Mapping):
+                continue
+            readiness = case.get("readiness") if isinstance(case.get("readiness"), Mapping) else {}
+            status = _as_text(readiness.get("status"))
+            if status:
+                readiness_counter[status] += 1
+            decision = case.get("decision") if isinstance(case.get("decision"), Mapping) else {}
+            skill_counter[_as_text(decision.get("skill")) or "<complete>"] += 1
+
+    reason = "max_stable_level={0}".format(_as_text(payload.get("max_stable_level")) or "none")
+    if payload.get("first_failed_level"):
+        reason += "; first_failed_level={0}".format(payload.get("first_failed_level"))
+    return RunRecord(
+        report_type="capability_ladder",
+        case=_as_text(payload.get("case")) or "capability_ladder_smoke",
+        status=_status(payload.get("status")),
+        reason=reason,
+        report_path=str(path),
+        artifacts_dir=_as_text(payload.get("artifacts_dir")) or str(path.parent),
+        modified_at=_file_modified_at(path),
+        skill=", ".join("{0}:{1}".format(key, value) for key, value in skill_counter.most_common(3)),
+        backend=_as_text(payload.get("max_stable_level")),
+        readiness_status=readiness_counter.most_common(1)[0][0] if readiness_counter else "",
+        readiness_label=failure_counter.most_common(1)[0][0] if failure_counter else "",
+        failure_label=failure_counter.most_common(1)[0][0] if failure_counter else "",
+        false_success_risk=false_success_risk,
+        passed=passed,
+        failed=failed,
+        subcase_count=subcase_count,
+    )
 
 
 def _long_tail_record(path: Path, payload: Mapping[str, Any]) -> RunRecord:
@@ -170,6 +227,8 @@ def normalize_report(path: Path) -> Optional[RunRecord]:
     if payload is None:
         return None
     report_type = _report_type(path, payload)
+    if report_type == "capability_ladder":
+        return _capability_ladder_record(path, payload)
     if report_type == "long_tail":
         return _long_tail_record(path, payload)
 
