@@ -27,5 +27,15 @@ data/tmp/
 data/cache/
 data/apks/
 
+# Local screenshots and ad-hoc capture artifacts
+/screenshots*.png
+/screen*.png
+/test*.png
+/manual_screen*.png
+
+# Dataset builds should live outside the source tree or in an ignored folder.
+datasets/
+data/datasets/
+
 # Local tmp
 tmp/
