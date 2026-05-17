@@ -87,10 +87,23 @@ Do not invent benchmark numbers. Fill these only from trace-backed runs.
 | Trace Coverage | TBD | TBD | future |
 | Avg Runtime Overhead / Action | TBD | TBD | future |
 
+Convert existing harness reports into A2R2 traces:
+
+```powershell
+python scripts\export_a2r2_traces.py --latest 50 --out data\traces
+```
+
+Generate a trace-backed scorecard:
+
+```powershell
+python -m a2r2.reports.scorecard --trace-dir data\traces --out docs\benchmark_v0.1.md
+```
+
 ## Repository Map
 
 - `a2r2/` - v0.1 reliability middleware API, policies, recorder, and scorecard.
 - `examples/wrap_external_agent.py` - dry-run wrapper around a dummy external agent.
+- `scripts/export_a2r2_traces.py` - converts existing harness reports into `trace.v1`.
 - `docs/` - architecture, trace schema, failure taxonomy, and scorecard definitions.
 - `app/` - legacy Android GUI agent/proposer/executor modules.
 - `scripts/` - existing chaos, long-tail, ladder, and summary harnesses.

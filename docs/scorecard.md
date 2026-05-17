@@ -74,6 +74,14 @@ scorecard reports insufficient data.
 
 ## Command
 
+Convert existing harness reports into A2R2 traces:
+
+```powershell
+python scripts\export_a2r2_traces.py --latest 50 --out data\traces
+```
+
+Generate the scorecard:
+
 ```powershell
 python -m a2r2.reports.scorecard --trace-dir data\traces --out docs\benchmark_v0.1.md
 ```
