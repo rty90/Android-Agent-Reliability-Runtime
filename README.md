@@ -1,126 +1,99 @@
-# Android Agent Reliability Runtime
+# A2R2: Android Agent Reliability Runtime
 
 Project URL: https://github.com/rty90/Android-Agent-Reliability-Runtime
 
-Android Agent Reliability Runtime is a debugging, safety, and recovery layer for
-Android GUI agents. It is not trying to be yet another fully autonomous mobile
-agent. The existing agent is treated as an execution kernel; this project adds
-the runtime layer that decides when the agent should act, wait, stop, diagnose,
-or ask a human to take over.
+A2R2 is a black-box safety gate for Android GUI agents: it catches unsafe
+actions before execution, verifies real progress after execution, and turns
+silent failures into reproducible traces.
 
-## Why This Exists
+Mobile agents are getting better at doing tasks. They are still bad at knowing
+when they are failing.
 
-Mobile GUI agents often fail silently:
+A2R2 does not try to be a smarter agent. It wraps existing agents with a
+process-level reliability layer.
 
-- They tap while the screen is still loading.
-- They mistake blocked pages for task success.
-- They repeat actions that do not change the UI.
-- They treat one-off failures as reusable memory.
-- They leave no reproducible trace when something goes wrong.
+## What A2R2 Does
 
-This project focuses on reliability instead of raw autonomy. The goal is not to
-make agents act more. The goal is to know when they should stop.
+- Readiness Gate
+- Action Risk Gate
+- Progress Verification
+- False Success Detection
+- Failure Taxonomy
+- Black-Box Trace Recorder
+- Reliability Scorecard
+- Agent-Agnostic Wrapper
 
-## Runtime Loop
+## What A2R2 Does Not Do
 
-```text
-Read screen
--> Normalize state
--> Classify readiness
--> Detect blocker / loop / risk
--> Propose action
--> Policy gate
--> Execute or ask human
--> Verify progress
--> Diagnose failure
--> Store trace
--> Promote reusable lessons only when validated
-```
+- It does not plan tasks.
+- It does not replan after failure.
+- It does not decompose goals.
+- It does not replace AndroidWorld.
+- It does not optimize final success rate directly.
+- It does not train VLMs in v0.1.
+- It does not bypass login/captcha/payment walls.
 
-## Core Ideas
-
-### Readiness First
-
-Before a model or procedure proposes an action, the runtime classifies the
-screen as:
-
-- `ready`
-- `loading`
-- `blocked`
-- `uncertain`
-- `complete`
-
-If the screen is not ready, normal actions are blocked. The runtime should only
-allow safe actions such as `wait`, `diagnose`, or `manual_handoff`.
-
-### Progress Is Verified
-
-Executing a tap is not the same as making progress. A successful action should
-mean:
+## Runtime Boundary
 
 ```text
-action_executed == true
-state_progress_verified == true
+Any Agent -> A2R2 Runtime -> Executor / Android Device
+                  |
+                  v
+          Trace Recorder / Scorecard
 ```
 
-If the UI does not meaningfully change after an action, the runtime should mark
-the step as `no_progress`, `stuck`, or `false_success`, not success.
+AndroidWorld tells whether an agent failed. A2R2 tells why and when it started
+failing before it fully failed.
 
-### Failures Are Diagnosed
+The existing `app/` package is treated as legacy agent/proposer/executor code
+that A2R2 can wrap. In particular, `app/reasoning_orchestrator.py` is an action
+proposer component, not the runtime decision authority.
 
-Failures should produce clear, stable labels such as:
+## Core v0.1 API
 
-- `loading_loop`
-- `permission_blocker`
-- `modal_blocker`
-- `wrong_page`
-- `target_missing`
-- `no_ui_change`
-- `false_success`
-- `uncertain_state`
-- `unsafe_action_blocked`
+```python
+from a2r2 import Observation, ProposedAction, ReliabilityRuntime, RuntimeConfig
 
-### Memory Is Conservative
+runtime = ReliabilityRuntime(config=RuntimeConfig())
 
-Raw failures should not become operational memory automatically. The intended
-memory pipeline is:
+decision = runtime.check_before_action(
+    goal=goal,
+    observation=before,
+    proposed_action=action,
+    history=history,
+)
 
-```text
-raw_trace -> candidate_lesson -> promoted_lesson
+verification = runtime.verify_after_action(
+    goal=goal,
+    before_observation=before,
+    action=action,
+    after_observation=after,
+    history=history,
+)
+
+runtime.record_step(goal, before, action, decision, after, verification, history)
 ```
 
-Lessons should default to hints. They should become control rules only after
-repeated evidence or human approval.
+## Benchmark Template
 
-## Architecture
+Do not invent benchmark numbers. Fill these only from trace-backed runs.
 
-Important modules:
+| Metric | Baseline Agent | + A2R2 Rules | + A2R2 Rules + VLM |
+|---|---:|---:|---:|
+| Non-Ready Action Block Rate | TBD | TBD | future |
+| Stuck Loop Detection Rate | TBD | TBD | future |
+| False Success Detection Rate | TBD | TBD | future |
+| Unsafe Action Leakage Rate | TBD | TBD | future |
+| Trace Coverage | TBD | TBD | future |
+| Avg Runtime Overhead / Action | TBD | TBD | future |
 
-- `app/utils/adb.py` - low-level ADB wrapper for device interaction.
-- `app/executor.py` - execution engine for bounded skills and plans.
-- `app/skills/` - atomic Android actions such as tap, type, wait, back, and search.
-- `app/readiness.py` - readiness classification for ready/loading/blocked/uncertain states.
-- `app/ui_facts.py` - reusable UI fact extraction helpers.
-- `app/ui_policy.py` - generic blocker and policy detection.
-- `app/ui_state.py` - normalized UI state and goal-progress assessment.
-- `app/procedural_skills.py` - generic procedure layer for common safe actions.
-- `app/reasoning_orchestrator.py` - action proposer that is now gated by readiness.
-- `app/lesson_policy.py` - conservative raw trace, candidate lesson, and promotion policy.
-- `app/diagnostics.py` - stable failure diagnostic reports.
-- `scripts/chaos_ui_harness.py` - deterministic blocker and overlay regression harness.
-- `scripts/chaos_ui_e2e_smoke.py` - minimal execute-and-verify smoke test.
-- `scripts/long_tail_agent_smoke.py` - mixed long-tail test runner for messy real cases.
+## Repository Map
 
-Guided UI reasoning order:
-
-```text
-read_screen
--> ui_facts / ui_policy / ui_state / readiness
--> procedural_skills
--> memory / model fallback
--> executor
--> verifier / diagnostics
-```
+- `a2r2/` - v0.1 reliability middleware API, policies, recorder, and scorecard.
+- `examples/wrap_external_agent.py` - dry-run wrapper around a dummy external agent.
+- `docs/` - architecture, trace schema, failure taxonomy, and scorecard definitions.
+- `app/` - legacy Android GUI agent/proposer/executor modules.
+- `scripts/` - existing chaos, long-tail, ladder, and summary harnesses.
 
 ## Setup
 

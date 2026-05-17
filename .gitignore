@@ -23,6 +23,7 @@ venv/
 data/*.db
 data/logs/
 data/screenshots/
+data/traces/
 data/tmp/
 data/cache/
 data/apks/

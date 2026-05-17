@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Iterable, List, Optional
+
+from a2r2.policies.common import (
+    action_fingerprint,
+    file_hash,
+    history_dicts,
+    observation_hash,
+    observation_text,
+    observation_xml,
+    stable_hash,
+)
+from a2r2.types import Observation, ProgressVerification, ProposedAction, RuntimeConfig
+
+
+class ProgressPolicy:
+    policy_name = "ProgressPolicy"
+
+    def __init__(self, config: Optional[RuntimeConfig] = None) -> None:
+        self.config = config or RuntimeConfig()
+
+    def evaluate(
+        self,
+        goal: str,
+        before_observation: Observation,
+        action: ProposedAction,
+        after_observation: Observation,
+        history: Optional[Iterable[Any]] = None,
+    ) -> ProgressVerification:
+        before_ui_hash = observation_hash(before_observation)
+        after_ui_hash = observation_hash(after_observation)
+        ui_changed: Optional[bool] = None
+        if before_ui_hash and after_ui_hash:
+            ui_changed = before_ui_hash != after_ui_hash
+
+        before_xml_hash = self._xml_hash(before_observation)
+        after_xml_hash = self._xml_hash(after_observation)
+        xml_changed: Optional[bool] = None
+        if before_xml_hash and after_xml_hash:
+            xml_changed = before_xml_hash != after_xml_hash
+
+        before_screenshot_hash = file_hash(before_observation.screenshot_path)
+        after_screenshot_hash = file_hash(after_observation.screenshot_path)
+        screenshot_changed: Optional[bool] = None
+        if before_screenshot_hash and after_screenshot_hash:
+            screenshot_changed = before_screenshot_hash != after_screenshot_hash
+
+        changed_signals = [
+            value for value in (ui_changed, xml_changed, screenshot_changed) if value is not None
+        ]
+        progress_made = any(changed_signals)
+        evidence: List[str] = []
+        if ui_changed is True:
+            evidence.append("ui_tree_hash_changed")
+        if xml_changed is True:
+            evidence.append("xml_changed")
+        if screenshot_changed is True:
+            evidence.append("screenshot_changed")
+        if not progress_made:
+            evidence.append("no_observable_change")
+
+        agent_claimed_success = self._agent_claimed_success(action)
+        false_success_candidate = bool(
+            agent_claimed_success and not progress_made and not self._goal_marker_present(goal, after_observation)
+        )
+
+        diagnosis_label: Optional[str] = None
+        if false_success_candidate:
+            diagnosis_label = "false_success"
+            evidence.append("agent_claimed_done_without_observed_goal_marker")
+        elif self._repeated_no_progress(action, history) and not progress_made:
+            diagnosis_label = "stuck_loop"
+            evidence.append("same_action_repeated_without_progress")
+        elif not progress_made:
+            diagnosis_label = "no_progress"
+
+        return ProgressVerification(
+            progress_made=progress_made,
+            ui_changed=ui_changed,
+            xml_changed=xml_changed,
+            screenshot_changed=screenshot_changed,
+            agent_claimed_success=agent_claimed_success,
+            false_success_candidate=false_success_candidate,
+            diagnosis_label=diagnosis_label,
+            evidence=evidence,
+        )
+
+    def _xml_hash(self, observation: Observation) -> Optional[str]:
+        xml_text = observation_xml(observation)
+        if xml_text:
+            return stable_hash(xml_text)
+        return None
+
+    def _agent_claimed_success(self, action: ProposedAction) -> bool:
+        raw = action.raw or {}
+        return bool(
+            action.action_type.lower() in {"done", "finish", "complete", "success"}
+            or raw.get("agent_claimed_success")
+            or raw.get("done")
+        )
+
+    def _goal_marker_present(self, goal: str, observation: Observation) -> bool:
+        metadata = observation.metadata or {}
+        if metadata.get("goal_satisfied") is True or metadata.get("goal_marker_present") is True:
+            return True
+        if metadata.get("goal_satisfied") is False or metadata.get("goal_marker_present") is False:
+            return False
+        markers = metadata.get("goal_markers")
+        if not isinstance(markers, (list, tuple, set)):
+            return False
+        corpus = observation_text(observation).lower()
+        return any(str(marker).strip().lower() in corpus for marker in markers if str(marker).strip())
+
+    def _repeated_no_progress(self, action: ProposedAction, history: Optional[Iterable[Any]]) -> bool:
+        current = action_fingerprint(action)
+        repeated_no_progress = 1
+        for item in reversed(history_dicts(history)):
+            proposed_action = item.get("proposed_action") if isinstance(item.get("proposed_action"), dict) else {}
+            verification = item.get("progress_verification") if isinstance(item.get("progress_verification"), dict) else {}
+            if not proposed_action:
+                continue
+            prior = ProposedAction(
+                action_type=str(proposed_action.get("action_type") or ""),
+                x=proposed_action.get("x"),
+                y=proposed_action.get("y"),
+                target_text=proposed_action.get("target_text"),
+                target_resource_id=proposed_action.get("target_resource_id"),
+                raw=proposed_action.get("raw"),
+            )
+            if action_fingerprint(prior) != current:
+                break
+            if verification.get("progress_made") is False:
+                repeated_no_progress += 1
+            if repeated_no_progress >= self.config.progress_repeat_threshold:
+                return True
+        return False
