@@ -115,12 +115,23 @@ Generate a visual trace viewer:
 python -m a2r2.reports.trace_viewer --trace-dir data\traces --out data\reports\a2r2_trace_viewer.html
 ```
 
+Generate a scripted Baseline vs A2R2 comparison demo:
+
+```powershell
+python scripts\a2r2_comparison_demo.py
+```
+
+The comparison demo is a visibility example, not a benchmark. It shows the same
+external-agent proposals with and without A2R2 gating, then writes
+`comparison.json`, `comparison.md`, `comparison.html`, and an A2R2 trace episode.
+
 ## Repository Map
 
 - `a2r2/` - v0.1 reliability middleware API, policies, recorder, and scorecard.
 - `examples/wrap_external_agent.py` - dry-run wrapper around a dummy external agent.
 - `scripts/export_a2r2_traces.py` - converts existing harness reports into `trace.v1`.
 - `scripts/a2r2_live_gate_smoke.py` - captures the current Android screen and records one live A2R2 gate/verify step.
+- `scripts/a2r2_comparison_demo.py` - generates a scripted Baseline vs A2R2 visibility report.
 - `docs/` - architecture, trace schema, failure taxonomy, and scorecard definitions.
 - `app/` - legacy Android GUI agent/proposer/executor modules.
 - `scripts/` - existing chaos, long-tail, ladder, and summary harnesses.
