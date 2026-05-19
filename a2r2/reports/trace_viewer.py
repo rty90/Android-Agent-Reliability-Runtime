@@ -33,6 +33,9 @@ def build_view_model(trace_dir: str, out_path: Optional[str] = None, latest: int
     for episode_id, episode_steps in grouped.items():
         compact_steps = [_compact_step(step, output_dir) for step in sorted(episode_steps, key=lambda item: int(item.get("step_index") or 0))]
         summary = summaries.get(episode_id, {})
+        agent_name = summary.get("agent_name") or _first_agent_name(episode_steps)
+        runtime_mode = summary.get("runtime_mode") or _first_runtime_mode(episode_steps)
+        latest_recorded_at = _latest_recorded_at(compact_steps)
         labels = sorted(
             {
                 label
@@ -45,8 +48,10 @@ def build_view_model(trace_dir: str, out_path: Optional[str] = None, latest: int
             {
                 "episode_id": episode_id,
                 "goal": summary.get("goal") or (compact_steps[0].get("goal") if compact_steps else ""),
-                "agent_name": summary.get("agent_name") or _first_agent_name(episode_steps),
-                "runtime_mode": summary.get("runtime_mode") or _first_runtime_mode(episode_steps),
+                "agent_name": agent_name,
+                "runtime_mode": runtime_mode,
+                "latest_recorded_at": latest_recorded_at,
+                "is_live_smoke": _is_live_smoke(agent_name, runtime_mode),
                 "final_success": summary.get("final_success"),
                 "blocked_actions": sum(1 for step in compact_steps if not step.get("allowed")),
                 "false_success": any(bool(step.get("false_success_candidate")) for step in compact_steps),
@@ -54,7 +59,7 @@ def build_view_model(trace_dir: str, out_path: Optional[str] = None, latest: int
                 "steps": compact_steps,
             }
         )
-    episodes.sort(key=lambda item: (item["episode_id"]))
+    episodes.sort(key=lambda item: (str(item.get("latest_recorded_at") or ""), str(item["episode_id"])), reverse=True)
 
     counts = Counter()
     for episode in episodes:
@@ -313,6 +318,7 @@ def render_html(model: Mapping[str, Any]) -> str:
       <input id="search" type="search" placeholder="Search goal, episode, action, label">
       <select id="filter">
         <option value="all">All decisions</option>
+        <option value="live">Live smoke</option>
         <option value="blocked">Blocked / handoff</option>
         <option value="allowed">Allowed</option>
         <option value="unsafe_action">Unsafe action</option>
@@ -320,8 +326,9 @@ def render_html(model: Mapping[str, Any]) -> str:
         <option value="false_success">False success</option>
       </select>
       <select id="sort">
-        <option value="episode">Sort by episode</option>
+        <option value="newest">Newest first</option>
         <option value="blocked">Blocked first</option>
+        <option value="episode">Sort by episode</option>
       </select>
     </section>
     <section id="summary" class="summary-grid"></section>
@@ -330,7 +337,7 @@ def render_html(model: Mapping[str, Any]) -> str:
   <script id="trace-data" type="application/json">""" + escaped_payload + """</script>
   <script>
     const model = JSON.parse(document.getElementById('trace-data').textContent);
-    const state = { search: '', filter: 'all', sort: 'episode' };
+    const state = { search: '', filter: 'all', sort: 'newest' };
     const byId = (id) => document.getElementById(id);
 
     function escapeHtml(value) {
@@ -367,12 +374,14 @@ def render_html(model: Mapping[str, Any]) -> str:
     function stepMatches(step, episode) {
       const haystack = [
         episode.episode_id, episode.goal, step.goal, step.action_label, step.decision,
-        step.decision_label, step.progress_label, step.diagnosis_label, step.before_page, step.after_page
+        step.decision_label, step.progress_label, step.diagnosis_label, step.before_page, step.after_page,
+        episode.agent_name, episode.runtime_mode
       ].join(' ').toLowerCase();
       if (state.search && !haystack.includes(state.search.toLowerCase())) return false;
+      if (state.filter === 'live' && !episode.is_live_smoke) return false;
       if (state.filter === 'blocked' && step.allowed) return false;
       if (state.filter === 'allowed' && !step.allowed) return false;
-      if (state.filter !== 'all' && !['blocked', 'allowed'].includes(state.filter)) {
+      if (state.filter !== 'all' && !['blocked', 'allowed', 'live'].includes(state.filter)) {
         const labels = [step.decision_label, step.progress_label, step.diagnosis_label].filter(Boolean);
         if (!labels.includes(state.filter)) return false;
       }
@@ -444,9 +453,11 @@ def render_html(model: Mapping[str, Any]) -> str:
           <div>
             <div class="episode-title">${escapeHtml(episode.episode_id)}</div>
             <div class="episode-subtitle">${escapeHtml(episode.goal || 'No goal recorded')}</div>
+            <div class="episode-subtitle">${escapeHtml([episode.agent_name, episode.runtime_mode, episode.latest_recorded_at].filter(Boolean).join(' / '))}</div>
           </div>
           <div class="chips">
             ${chip(`${steps.length} steps`)}
+            ${chip(episode.is_live_smoke ? 'live smoke' : '')}
             ${chip(`${episode.blocked_actions || 0} blocked`, episode.blocked_actions ? 'warn' : '')}
             ${(episode.failure_labels || []).map(label => chip(label, labelKind(label))).join('')}
           </div>
@@ -457,7 +468,11 @@ def render_html(model: Mapping[str, Any]) -> str:
     function render() {
       let episodes = model.episodes.map(ep => ({...ep, steps: [...ep.steps]}));
       if (state.sort === 'blocked') {
-        episodes.sort((a, b) => (b.blocked_actions || 0) - (a.blocked_actions || 0));
+        episodes.sort((a, b) => ((b.blocked_actions || 0) - (a.blocked_actions || 0)) || String(b.latest_recorded_at || '').localeCompare(String(a.latest_recorded_at || '')));
+      } else if (state.sort === 'episode') {
+        episodes.sort((a, b) => String(a.episode_id || '').localeCompare(String(b.episode_id || '')));
+      } else {
+        episodes.sort((a, b) => String(b.latest_recorded_at || '').localeCompare(String(a.latest_recorded_at || '')));
       }
       const visible = episodes
         .map(ep => ({...ep, steps: ep.steps.filter(step => stepMatches(step, ep))}))
@@ -564,6 +579,16 @@ def _first_runtime_mode(steps: Iterable[Mapping[str, Any]]) -> str:
         if meta.get("runtime_mode"):
             return str(meta["runtime_mode"])
     return ""
+
+
+def _latest_recorded_at(steps: Iterable[Mapping[str, Any]]) -> str:
+    values = [str(step.get("recorded_at") or "") for step in steps if step.get("recorded_at")]
+    return max(values) if values else ""
+
+
+def _is_live_smoke(agent_name: Any, runtime_mode: Any) -> bool:
+    combined = "{0} {1}".format(agent_name or "", runtime_mode or "").lower()
+    return "live" in combined or "a2r2_live_gate_smoke" in combined
 
 
 def _now_label() -> str:
