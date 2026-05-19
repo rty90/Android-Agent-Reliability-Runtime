@@ -80,6 +80,12 @@ Convert existing harness reports into A2R2 traces:
 python scripts\export_a2r2_traces.py --latest 50 --out data\traces
 ```
 
+Record one live A2R2 gate/verify trace from the current Android screen:
+
+```powershell
+python scripts\a2r2_live_gate_smoke.py --proposal wait --out data\traces
+```
+
 Generate the scorecard:
 
 ```powershell

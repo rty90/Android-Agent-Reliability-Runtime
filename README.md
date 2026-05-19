@@ -93,6 +93,16 @@ Convert existing harness reports into A2R2 traces:
 python scripts\export_a2r2_traces.py --latest 50 --out data\traces
 ```
 
+Run one live A2R2 gate/verify smoke against the current Android screen:
+
+```powershell
+python scripts\a2r2_live_gate_smoke.py --proposal wait --out data\traces
+python scripts\a2r2_live_gate_smoke.py --proposal dangerous-send --out data\traces
+```
+
+`wait` is the only proposal the live smoke executes. Other proposal modes are
+recorded as gate decisions without tapping or typing on the device.
+
 Generate a trace-backed scorecard:
 
 ```powershell
@@ -104,6 +114,7 @@ python -m a2r2.reports.scorecard --trace-dir data\traces --out docs\benchmark_v0
 - `a2r2/` - v0.1 reliability middleware API, policies, recorder, and scorecard.
 - `examples/wrap_external_agent.py` - dry-run wrapper around a dummy external agent.
 - `scripts/export_a2r2_traces.py` - converts existing harness reports into `trace.v1`.
+- `scripts/a2r2_live_gate_smoke.py` - captures the current Android screen and records one live A2R2 gate/verify step.
 - `docs/` - architecture, trace schema, failure taxonomy, and scorecard definitions.
 - `app/` - legacy Android GUI agent/proposer/executor modules.
 - `scripts/` - existing chaos, long-tail, ladder, and summary harnesses.
