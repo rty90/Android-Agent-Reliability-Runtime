@@ -91,3 +91,9 @@ Generate the scorecard:
 ```powershell
 python -m a2r2.reports.scorecard --trace-dir data\traces --out docs\benchmark_v0.1.md
 ```
+
+Generate the visual trace viewer:
+
+```powershell
+python -m a2r2.reports.trace_viewer --trace-dir data\traces --out data\reports\a2r2_trace_viewer.html
+```

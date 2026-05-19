@@ -22,6 +22,7 @@ venv/
 # Project data
 data/*.db
 data/logs/
+data/reports/
 data/screenshots/
 data/traces/
 data/tmp/

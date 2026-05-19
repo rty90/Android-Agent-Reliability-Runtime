@@ -109,6 +109,12 @@ Generate a trace-backed scorecard:
 python -m a2r2.reports.scorecard --trace-dir data\traces --out docs\benchmark_v0.1.md
 ```
 
+Generate a visual trace viewer:
+
+```powershell
+python -m a2r2.reports.trace_viewer --trace-dir data\traces --out data\reports\a2r2_trace_viewer.html
+```
+
 ## Repository Map
 
 - `a2r2/` - v0.1 reliability middleware API, policies, recorder, and scorecard.
