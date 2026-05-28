@@ -108,7 +108,7 @@ class A2R2RuntimeTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "examples\\wrap_external_agent.py",
+                    str(repo_root / "examples" / "wrap_external_agent.py"),
                     "--dry-run",
                     "--trace-dir",
                     temp_dir,

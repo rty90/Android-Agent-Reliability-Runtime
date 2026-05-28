@@ -16,7 +16,7 @@ class A2R2ComparisonDemoTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts\\a2r2_comparison_demo.py",
+                    str(repo_root / "scripts" / "a2r2_comparison_demo.py"),
                     "--out-dir",
                     str(out_dir),
                     "--trace-dir",
