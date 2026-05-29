@@ -64,15 +64,18 @@ class ProgressPolicy:
         false_success_candidate = bool(
             agent_claimed_success and not progress_made and not self._goal_marker_present(goal, after_observation)
         )
+        no_progress_expected = self._no_progress_expected(action)
+        if no_progress_expected and not progress_made:
+            evidence.append("no_progress_expected_for:{0}".format(action.action_type))
 
         diagnosis_label: Optional[str] = None
         if false_success_candidate:
             diagnosis_label = "false_success"
             evidence.append("agent_claimed_done_without_observed_goal_marker")
-        elif self._repeated_no_progress(action, history) and not progress_made:
+        elif self._repeated_no_progress(action, history) and not progress_made and not no_progress_expected:
             diagnosis_label = "stuck_loop"
             evidence.append("same_action_repeated_without_progress")
-        elif not progress_made:
+        elif not progress_made and not no_progress_expected:
             diagnosis_label = "no_progress"
 
         return ProgressVerification(
@@ -99,6 +102,9 @@ class ProgressPolicy:
             or raw.get("agent_claimed_success")
             or raw.get("done")
         )
+
+    def _no_progress_expected(self, action: ProposedAction) -> bool:
+        return str(action.action_type or "").lower() in {"confirm", "wait"}
 
     def _goal_marker_present(self, goal: str, observation: Observation) -> bool:
         metadata = observation.metadata or {}

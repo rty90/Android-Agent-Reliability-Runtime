@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from a2r2.policies.common import (
     history_dicts,
@@ -62,6 +62,17 @@ class ReadinessPolicy:
                 evidence=["repeated_ui_tree_hash:{0}".format(observation_hash(observation))],
             )
 
+        if self._screen_independent_action(proposed_action):
+            return RuntimeDecision(
+                decision="allow",
+                allowed=True,
+                reason="The proposed action does not depend on the current UI being actionable.",
+                diagnosis_label=None,
+                evidence=["screen_independent_action:{0}".format(proposed_action.action_type)],
+                confidence=0.82,
+                policy_name=self.policy_name,
+            )
+
         if not xml_text.strip():
             if observation.screenshot_path:
                 return self._wait(
@@ -98,6 +109,18 @@ class ReadinessPolicy:
                 diagnosis_label="non_ready_action",
                 evidence=target_problem,
                 confidence=0.85,
+                policy_name=self.policy_name,
+            )
+
+        target_missing = self._target_missing_from_facts(observation, proposed_action)
+        if target_missing:
+            return RuntimeDecision(
+                decision="block",
+                allowed=False,
+                reason="The proposed target is not present in the current actionable UI facts.",
+                diagnosis_label="target_missing",
+                evidence=target_missing,
+                confidence=0.78,
                 policy_name=self.policy_name,
             )
 
@@ -144,6 +167,9 @@ class ReadinessPolicy:
             policy_name=self.policy_name,
         )
 
+    def _screen_independent_action(self, action: ProposedAction) -> bool:
+        return str(action.action_type or "").lower() in {"open_app", "wait"}
+
     def _same_hash_repeated(self, observation: Observation, history: Optional[Iterable[Any]]) -> bool:
         current_hash = observation_hash(observation)
         if not current_hash:
@@ -173,6 +199,50 @@ class ReadinessPolicy:
             if evidence:
                 return evidence
         return evidence
+
+    def _target_missing_from_facts(self, observation: Observation, action: ProposedAction) -> List[str]:
+        if not self._requires_named_target(action):
+            return []
+        target_text = str(action.target_text or "").strip()
+        target_id = str(action.target_resource_id or "").strip()
+        if not target_text and not target_id:
+            return []
+
+        metadata = observation.metadata or {}
+        target_facts = metadata.get("possible_targets")
+        if not isinstance(target_facts, list):
+            return []
+
+        if not target_facts:
+            return ["target_facts_empty", "missing_target:{0}".format(target_text or target_id)]
+
+        for target in target_facts:
+            if isinstance(target, Mapping) and self._target_fact_matches(target, target_text, target_id):
+                return []
+        return [
+            "target_not_in_possible_targets",
+            "missing_target:{0}".format(target_text or target_id),
+            "possible_target_count:{0}".format(len(target_facts)),
+        ]
+
+    def _requires_named_target(self, action: ProposedAction) -> bool:
+        action_type = str(action.action_type or "").lower()
+        if action_type in {"tap", "click"}:
+            return bool(action.target_text or action.target_resource_id or action.x is None or action.y is None)
+        return bool(action.target_resource_id and action_type in {"type_text", "input_text"})
+
+    def _target_fact_matches(self, target: Mapping[str, Any], target_text: str, target_id: str) -> bool:
+        haystack = " ".join(
+            str(target.get(key) or "").strip().lower()
+            for key in ("label", "text", "content_desc", "resource_id", "target_id", "hint")
+        )
+        wanted_id = target_id.lower()
+        wanted_text = target_text.lower()
+        if wanted_id and wanted_id in haystack:
+            return True
+        if wanted_text and wanted_text in haystack:
+            return True
+        return False
 
     def _looks_like_blank_webview(self, corpus: str, xml_text: str) -> bool:
         if not any(marker in corpus for marker in WEBVIEW_BLANK_MARKERS):

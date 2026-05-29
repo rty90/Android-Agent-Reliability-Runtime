@@ -30,6 +30,7 @@ class Executor(object):
         page_reasoner: Any = None,
         runtime_config: Any = None,
         trace_bus: Any = None,
+        step_observer: Any = None,
     ) -> None:
         self.adb = adb
         self.state = state
@@ -41,6 +42,10 @@ class Executor(object):
         self.page_reasoner = page_reasoner
         self.runtime_config = runtime_config
         self.trace_bus = trace_bus
+        # Optional read-only callback invoked once per executed step. It never
+        # alters control flow (A2R2 shadow mode); exceptions are swallowed so an
+        # observer can never break the agent.
+        self.step_observer = step_observer
         self._interactive_allowed_skills = {
             "open_app",
             "tap",
@@ -157,6 +162,53 @@ class Executor(object):
         return final_result
 
     def _execute_step(
+        self, step: PlanStep, context: SkillContext, step_index: int
+    ) -> Dict[str, Any]:
+        before_summary = dict(self.state.screen_summary or {})
+        try:
+            result = self._execute_step_inner(step, context, step_index)
+        except Exception as exc:
+            self._notify_step_observer(
+                step,
+                before_summary,
+                {
+                    "success": False,
+                    "detail": "Executor exception: {0}: {1}".format(type(exc).__name__, exc),
+                    "data": {"exception_type": type(exc).__name__},
+                },
+                step_index,
+            )
+            raise
+        self._notify_step_observer(step, before_summary, result, step_index)
+        return result
+
+    def _notify_step_observer(
+        self,
+        step: PlanStep,
+        before_summary: Dict[str, Any],
+        result: Dict[str, Any],
+        step_index: int,
+    ) -> None:
+        if self.step_observer is None:
+            return
+        try:
+            self.step_observer(
+                {
+                    "step_index": step_index,
+                    "skill": step.skill,
+                    "args": dict(step.args or {}),
+                    "before_summary": before_summary,
+                    "after_summary": dict(self.state.screen_summary or {}),
+                    "success": bool(result.get("success")),
+                    "detail": str(result.get("detail", "")),
+                    "data": result.get("data") or {},
+                }
+            )
+        except Exception:
+            # A read-only observer must never break agent execution.
+            pass
+
+    def _execute_step_inner(
         self, step: PlanStep, context: SkillContext, step_index: int
     ) -> Dict[str, Any]:
         resolved_step = PlanStep(step.skill, self._resolve_args(step.args))
