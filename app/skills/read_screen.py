@@ -235,14 +235,17 @@ def read_screen_summary(
 
     browser_page = _detect_browser_page(visible_text, possible_targets, current_package, current_url)
     detected_page = detect_page_name(visible_text, focus, runtime_config)
+    target_limit = 50
     summary = {
         "app": app_name,
         "current_package": current_package,
         "current_url": current_url,
         "current_domain": current_domain,
         "page": browser_page or detected_page or Path(str(dump_path)).stem,
-        "visible_text": visible_text[:50],
-        "possible_targets": possible_targets[:50],
+        "visible_text": visible_text[:target_limit],
+        "possible_targets": possible_targets[:target_limit],
+        "possible_target_total_count": len(possible_targets),
+        "possible_targets_truncated": len(possible_targets) > target_limit,
         "focus": focus,
         "ui_dump_path": str(dump_path),
     }

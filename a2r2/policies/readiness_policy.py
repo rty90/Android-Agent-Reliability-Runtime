@@ -212,6 +212,8 @@ class ReadinessPolicy:
         target_facts = metadata.get("possible_targets")
         if not isinstance(target_facts, list):
             return []
+        if self._target_facts_incomplete(metadata, target_facts):
+            return []
 
         if not target_facts:
             return ["target_facts_empty", "missing_target:{0}".format(target_text or target_id)]
@@ -241,6 +243,21 @@ class ReadinessPolicy:
         if wanted_id and wanted_id in haystack:
             return True
         if wanted_text and wanted_text in haystack:
+            return True
+        return False
+
+    def _target_facts_incomplete(self, metadata: Mapping[str, Any], target_facts: List[Any]) -> bool:
+        if bool(metadata.get("possible_targets_truncated")):
+            return True
+        total = metadata.get("possible_target_total_count", metadata.get("possible_target_count"))
+        if isinstance(total, int) and total > len(target_facts):
+            return True
+        if isinstance(total, int) and total >= 50 and len(target_facts) >= 50:
+            return True
+        # Older traces and summaries had only the first 50 targets and no
+        # explicit truncation bit. Treat a full 50-item sample as insufficient
+        # evidence for a strong missing-target conclusion.
+        if len(target_facts) >= 50 and "possible_targets_truncated" not in metadata:
             return True
         return False
 

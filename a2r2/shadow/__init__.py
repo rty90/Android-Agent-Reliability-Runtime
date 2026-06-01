@@ -14,6 +14,7 @@ The session also measures real per-action A2R2 overhead and the rate at which
 A2R2 would have wrongly intervened on steps that actually succeeded.
 """
 
+from a2r2.shadow.aggregate import aggregate, load_reports
 from a2r2.shadow.harness import ShadowSession, render_html, render_markdown
 
-__all__ = ["ShadowSession", "render_html", "render_markdown"]
+__all__ = ["ShadowSession", "render_html", "render_markdown", "aggregate", "load_reports"]

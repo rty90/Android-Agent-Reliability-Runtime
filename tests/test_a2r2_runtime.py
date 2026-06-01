@@ -87,6 +87,25 @@ class A2R2RuntimeTests(unittest.TestCase):
         self.assertEqual(decision.diagnosis_label, "target_missing")
         self.assertIn("target_not_in_possible_targets", decision.evidence)
 
+    def test_readiness_policy_does_not_block_missing_target_when_target_facts_are_truncated(self):
+        decision = ReadinessPolicy().evaluate(
+            goal="save a reminder",
+            observation=Observation(
+                metadata={
+                    "xml_text": READY_XML,
+                    "possible_targets": [{"label": "Day {0}".format(i)} for i in range(50)],
+                    "possible_target_count": 50,
+                    "possible_target_total_count": 50,
+                    "possible_targets_truncated": False,
+                }
+            ),
+            proposed_action=ProposedAction(action_type="tap", target_text="Save"),
+            history=[],
+        )
+
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.decision, "allow")
+
     def test_risk_policy_handoffs_dangerous_action_text(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             runtime = ReliabilityRuntime(RuntimeConfig(traces_root=temp_dir))

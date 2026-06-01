@@ -47,6 +47,9 @@ def observation_from_summary(
     summary = summary or {}
     xml_path = str(summary.get("ui_dump_path") or "") or None
     visible_text = list(summary.get("visible_text") or [])[:50]
+    raw_targets = summary.get("possible_targets") or []
+    compact_targets = _compact_targets(raw_targets)
+    target_count = len(raw_targets) if isinstance(raw_targets, (list, tuple)) else 0
     fingerprint = stable_hash(
         {
             "package": summary.get("current_package") or summary.get("app"),
@@ -63,8 +66,14 @@ def observation_from_summary(
         "current_domain": summary.get("current_domain"),
         "visible_text": visible_text,
         "system_overlay": summary.get("system_overlay"),
-        "possible_target_count": len(summary.get("possible_targets") or []),
-        "possible_targets": _compact_targets(summary.get("possible_targets") or []),
+        "possible_target_count": target_count,
+        "possible_target_total_count": summary.get("possible_target_total_count", target_count),
+        "possible_targets_truncated": bool(
+            summary.get("possible_targets_truncated")
+            or (target_count > len(compact_targets))
+            or (target_count >= 50 and "possible_targets_truncated" not in summary)
+        ),
+        "possible_targets": compact_targets,
     }
     # If the summary carries raw XML inline, forward it so readiness checks work
     # without re-reading the dump file. Real runs usually rely on xml_path (the

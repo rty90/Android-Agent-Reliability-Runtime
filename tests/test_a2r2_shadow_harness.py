@@ -12,7 +12,8 @@ from a2r2.adapters.legacy_app import (
     observation_from_summary,
     proposed_action_from_step,
 )
-from a2r2.shadow import ShadowSession, render_html, render_markdown
+from a2r2.shadow import ShadowSession, aggregate, load_reports, render_html, render_markdown
+from a2r2.shadow.aggregate import render_markdown as render_aggregate_md
 
 READY_XML = (
     '<?xml version="1.0" encoding="UTF-8"?>'
@@ -76,7 +77,16 @@ class AdapterTests(unittest.TestCase):
     def test_observation_forwards_possible_target_facts(self):
         obs = observation_from_summary(_summary("h", READY_XML, target="Save"))
         self.assertEqual(obs.metadata["possible_target_count"], 1)
+        self.assertEqual(obs.metadata["possible_target_total_count"], 1)
+        self.assertFalse(obs.metadata["possible_targets_truncated"])
         self.assertEqual(obs.metadata["possible_targets"][0]["label"], "Save")
+
+    def test_observation_marks_legacy_full_target_sample_as_truncated(self):
+        summary = _summary("h", READY_XML, target="Save")
+        summary["possible_targets"] = [{"label": "Day {0}".format(i)} for i in range(50)]
+        obs = observation_from_summary(summary)
+        self.assertEqual(obs.metadata["possible_target_count"], 50)
+        self.assertTrue(obs.metadata["possible_targets_truncated"])
 
     def test_observation_handles_none(self):
         obs = observation_from_summary(None)
@@ -221,6 +231,252 @@ class ShadowSessionTests(unittest.TestCase):
             report = session.finalize(final_success=True)
         self.assertIn("Shadow Run Report", render_markdown(report))
         self.assertIn("<html", render_html(report))
+
+
+class ShadowAggregateTests(unittest.TestCase):
+    def _reports(self):
+        return [
+            {  # failed, A2R2 predicted early with lead 2
+                "episode_id": "e1",
+                "goal": "a",
+                "final_success": False,
+                "a2r2_prediction_matched_failure": True,
+                "failure_captured_not_predicted": False,
+                "gated_steps": 3,
+                "over_flag_count": 0,
+                "avg_a2r2_overhead_ms_per_action": 1.0,
+                "timeline": {"a2r2_lead_over_failure": 2, "a2r2_lead_over_agent_guard": 1},
+                "agent_reported_failure_labels": {"target_missing": 1},
+            },
+            {  # failed, A2R2 blind spot (captured but not predicted)
+                "episode_id": "e2",
+                "goal": "b",
+                "final_success": False,
+                "a2r2_prediction_matched_failure": False,
+                "failure_captured_not_predicted": True,
+                "gated_steps": 2,
+                "over_flag_count": 0,
+                "avg_a2r2_overhead_ms_per_action": 3.0,
+                "timeline": {"a2r2_lead_over_failure": None, "a2r2_lead_over_agent_guard": None},
+                "agent_reported_failure_labels": {"target_missing": 1},
+            },
+            {  # succeeded, one over-flag
+                "episode_id": "e3",
+                "goal": "c",
+                "final_success": True,
+                "a2r2_prediction_matched_failure": None,
+                "failure_captured_not_predicted": False,
+                "gated_steps": 5,
+                "over_flag_count": 1,
+                "avg_a2r2_overhead_ms_per_action": 2.0,
+                "timeline": {},
+                "agent_reported_failure_labels": {},
+            },
+        ]
+
+    def test_aggregate_real_denominators(self):
+        agg = aggregate(self._reports())
+        self.assertEqual(agg["episodes_total"], 3)
+        self.assertEqual(agg["episodes_failed"], 2)
+        # e1 has lead 2 (>0) -> predicted early; 1 of 2 failures
+        self.assertEqual(agg["metrics"]["predicted_early_rate"]["value"], 0.5)
+        self.assertEqual(agg["metrics"]["coincident_flag_rate"]["value"], 0.0)
+        self.assertEqual(agg["metrics"]["flagged_at_or_before_rate"]["value"], 0.5)
+        self.assertEqual(agg["metrics"]["blind_spot_rate"]["value"], 0.5)
+        # over-flag rate: 1 over-flag / 10 gated steps
+        self.assertEqual(agg["metrics"]["over_flag_rate"]["numerator"], 1)
+        self.assertEqual(agg["metrics"]["over_flag_rate"]["denominator"], 10)
+        self.assertEqual(agg["metrics"]["mean_lead_over_failure"], 2)
+        self.assertEqual(agg["agent_reported_failure_labels"], {"target_missing": 2})
+
+    def test_aggregate_weighted_overhead(self):
+        agg = aggregate(self._reports())
+        # (1.0*3 + 3.0*2 + 2.0*5) / (3+2+5) = 19/10
+        self.assertAlmostEqual(agg["metrics"]["avg_overhead_ms_per_action"], 1.9)
+
+    def test_aggregate_empty(self):
+        agg = aggregate([])
+        self.assertEqual(agg["episodes_total"], 0)
+        self.assertIsNone(agg["metrics"]["predicted_early_rate"]["value"])
+
+    def test_load_and_render_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            for i, rep in enumerate(self._reports()):
+                ep_dir = Path(d) / "ep{0}".format(i)
+                ep_dir.mkdir()
+                (ep_dir / "shadow_report.json").write_text(
+                    __import__("json").dumps(rep), encoding="utf-8"
+                )
+            loaded = load_reports(d)
+            self.assertEqual(len(loaded), 3)
+            md = render_aggregate_md(aggregate(loaded))
+            self.assertIn("Shadow Aggregate Scorecard", md)
+
+
+class FailureCatalogTests(unittest.TestCase):
+    def _write_report(self, d, name, report):
+        ep = Path(d) / name
+        ep.mkdir()
+        (ep / "shadow_report.json").write_text(__import__("json").dumps(report), encoding="utf-8")
+
+    def test_catalog_groups_and_classifies(self):
+        from a2r2.shadow.failure_catalog import build_catalog, render_markdown
+
+        blind = {
+            "episode_id": "b1", "goal": "create a reminder", "final_success": False,
+            "a2r2_prediction_matched_failure": False,
+            "timeline": {"a2r2_lead_over_failure": None}, "episode_dir": "",
+            "rows": [{"seq": 1, "gated": True, "skill": "tap", "target": "save",
+                      "agent_step_success": False, "detail": "Unable to find tap target: save",
+                      "agent_reported_failure_label": "target_missing",
+                      "would_decision": "allow", "would_label": None, "verify_label": None,
+                      "a2r2_flagged": False}],
+        }
+        early = dict(blind)
+        early = {**blind, "episode_id": "e1",
+                 "a2r2_prediction_matched_failure": True,
+                 "timeline": {"a2r2_lead_over_failure": 2}}
+        with tempfile.TemporaryDirectory() as d:
+            self._write_report(d, "b1", blind)
+            self._write_report(d, "e1", early)
+            catalog = build_catalog(d)
+
+        self.assertEqual(catalog["failed_episodes"], 2)
+        self.assertEqual(catalog["by_a2r2_outcome"].get("blind"), 1)
+        self.assertEqual(catalog["by_a2r2_outcome"].get("predicted_early"), 1)
+        self.assertEqual(catalog["by_category"].get("target_missing"), 2)
+        self.assertIn("Failure Catalog", render_markdown(catalog))
+
+
+class ReplayCandidateTests(unittest.TestCase):
+    def test_candidate_target_missing_logic(self):
+        from a2r2.shadow.replay import candidate_target_missing, candidate_target_missing_text_only
+        from a2r2.types import Observation, ProposedAction
+
+        present = Observation(
+            metadata={
+                "visible_text": ["Reminder title"],
+                "possible_targets": [{"content_desc": "Save", "clickable": True}],
+            }
+        )
+        absent = Observation(
+            metadata={
+                "visible_text": ["Sign in", "Forgot email?"],
+                "possible_targets": [{"text": "NEXT", "clickable": True}],
+            }
+        )
+        empty = Observation(metadata={})
+        tap_save = ProposedAction(action_type="tap", target_text="save")
+
+        # target absent from actionable facts -> flag
+        self.assertTrue(candidate_target_missing(absent, tap_save))
+        # target present as an icon/content-desc -> no flag
+        self.assertFalse(candidate_target_missing(present, tap_save))
+        # old traces without possible_targets -> don't guess
+        self.assertFalse(candidate_target_missing(empty, tap_save))
+        truncated = Observation(
+            metadata={
+                "possible_targets": [{"label": "Day {0}".format(i)} for i in range(50)],
+                "possible_target_count": 50,
+                "possible_targets_truncated": True,
+            }
+        )
+        self.assertFalse(candidate_target_missing(truncated, tap_save))
+        # text-only reference still cannot see the icon/content-desc target
+        self.assertTrue(candidate_target_missing_text_only(present, tap_save))
+        # non-tap -> out of scope
+        self.assertFalse(candidate_target_missing(absent, ProposedAction(action_type="swipe", target_text="save")))
+        # no target_text -> out of scope
+        self.assertFalse(candidate_target_missing(absent, ProposedAction(action_type="tap")))
+
+    def test_replay_reports_actionable_vs_text_only_candidates(self):
+        from a2r2.shadow.replay import replay_corpus
+
+        with tempfile.TemporaryDirectory() as d:
+            trace_root = Path(d) / "trace_ep"
+            trace_root.mkdir()
+            step = {
+                "before_state": {
+                    "metadata": {
+                        "page": "reminder_editor",
+                        "visible_text": ["Reminder title"],
+                        "possible_targets": [{"content_desc": "Save", "clickable": True}],
+                    }
+                },
+                "proposed_action": {"action_type": "tap", "target_text": "save"},
+            }
+            (trace_root / "steps.jsonl").write_text(
+                __import__("json").dumps(step) + "\n", encoding="utf-8"
+            )
+            report_dir = Path(d) / "report_ep"
+            report_dir.mkdir()
+            report = {
+                "episode_id": "ok",
+                "goal": "save reminder",
+                "final_success": True,
+                "episode_dir": str(trace_root),
+                "timeline": {},
+                "rows": [{"gated": True, "agent_step_success": True}],
+            }
+            (report_dir / "shadow_report.json").write_text(
+                __import__("json").dumps(report), encoding="utf-8"
+            )
+
+            replay = replay_corpus(d)
+
+        action = replay["candidates"]["actionable_targets"]
+        text_ref = replay["candidates"]["text_only_reference"]
+        self.assertEqual(action["over_flag"]["steps"], 0)
+        self.assertEqual(text_ref["over_flag"]["steps"], 1)
+        self.assertEqual(text_ref["success_step_flags"]["steps"], 1)
+        self.assertEqual(action["caught_at_or_before"], 0)
+        self.assertEqual(replay["actionable_target_fact_coverage"]["available_named_tap_steps"], 1)
+
+    def test_replay_does_not_count_no_progress_success_flag_as_over_flag_cost(self):
+        from a2r2.shadow.replay import replay_corpus
+
+        with tempfile.TemporaryDirectory() as d:
+            trace_root = Path(d) / "trace_ep"
+            trace_root.mkdir()
+            step = {
+                "before_state": {
+                    "metadata": {
+                        "page": "reminder_editor",
+                        "visible_text": ["Reminder title"],
+                        "possible_targets": [{"label": "Search", "clickable": True}],
+                    }
+                },
+                "proposed_action": {"action_type": "tap", "target_text": "save"},
+            }
+            (trace_root / "steps.jsonl").write_text(
+                __import__("json").dumps(step) + "\n", encoding="utf-8"
+            )
+            report_dir = Path(d) / "report_ep"
+            report_dir.mkdir()
+            report = {
+                "episode_id": "ok",
+                "goal": "save reminder",
+                "final_success": True,
+                "episode_dir": str(trace_root),
+                "timeline": {},
+                "rows": [
+                    {
+                        "gated": True,
+                        "agent_step_success": True,
+                        "verify_label": "no_progress",
+                        "progress_made": False,
+                    }
+                ],
+            }
+            (report_dir / "shadow_report.json").write_text(
+                __import__("json").dumps(report), encoding="utf-8"
+            )
+
+            replay = replay_corpus(d)
+
+        action = replay["candidates"]["actionable_targets"]
+        self.assertEqual(action["success_step_flags"]["steps"], 1)
+        self.assertEqual(action["over_flag"]["steps"], 0)
 
 
 class ExecutorObserverHookTests(unittest.TestCase):
