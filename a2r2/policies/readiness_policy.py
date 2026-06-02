@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+import struct
+import zlib
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from a2r2.policies.common import (
@@ -54,6 +57,8 @@ class ReadinessPolicy:
         xml_text = observation_xml(observation)
         corpus = observation_text(observation).lower()
         evidence: List[str] = []
+        null_ui_root = "null root node" in corpus or "uitestautomationbridge" in corpus
+        black_screen = self._looks_like_black_screenshot(observation.screenshot_path)
 
         if self._same_hash_repeated(observation, history):
             return self._wait(
@@ -73,8 +78,28 @@ class ReadinessPolicy:
                 policy_name=self.policy_name,
             )
 
+        if null_ui_root and black_screen:
+            return self._wait(
+                reason="The current screen appears black and Android returned no accessibility root.",
+                label="black_screen",
+                evidence=["black_screenshot", "null_ui_root"],
+            )
+
+        if null_ui_root:
+            return self._wait(
+                reason="Android returned no accessibility root; retry observation before acting.",
+                label="non_ready_action",
+                evidence=["null_ui_root"],
+            )
+
         if not xml_text.strip():
             if observation.screenshot_path:
+                if black_screen:
+                    return self._wait(
+                        reason="Screenshot appears black and XML is missing; retry observation before acting.",
+                        label="black_screen",
+                        evidence=["black_screenshot", "missing_xml"],
+                    )
                 return self._wait(
                     reason="Screenshot exists but XML is missing; retry observation before acting.",
                     label="non_ready_action",
@@ -87,6 +112,12 @@ class ReadinessPolicy:
             )
 
         if len(xml_text.strip()) < 80:
+            if black_screen:
+                return self._wait(
+                    reason="Screenshot appears black and XML is too small to trust.",
+                    label="black_screen",
+                    evidence=["black_screenshot", "content_poor_xml"],
+                )
             return self._wait(
                 reason="XML observation is too small to trust.",
                 label="non_ready_action",
@@ -271,3 +302,101 @@ class ReadinessPolicy:
             if str(node.get("text") or node.get("content-desc") or "").strip()
         ]
         return len(visible_text_nodes) <= 2
+
+    def _looks_like_black_screenshot(self, screenshot_path: Optional[str]) -> bool:
+        if not screenshot_path:
+            return False
+        target = Path(screenshot_path)
+        if not target.exists() or not target.is_file():
+            return False
+        try:
+            width, height, pixels = self._read_png_pixels(target)
+        except (OSError, ValueError, zlib.error):
+            return False
+        total_pixels = width * height
+        if total_pixels <= 0 or not pixels:
+            return False
+        stride = max(1, total_pixels // 20000)
+        dark = 0
+        sampled = 0
+        for index, (red, green, blue) in enumerate(pixels):
+            if index % stride:
+                continue
+            # Allows a white gesture/navigation bar while catching a mostly
+            # black app surface.
+            if red + green + blue <= 30:
+                dark += 1
+            sampled += 1
+        return sampled > 0 and (dark / sampled) >= 0.96
+
+    def _read_png_pixels(self, path: Path) -> tuple[int, int, List[tuple[int, int, int]]]:
+        data = path.read_bytes()
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("not a png")
+        pos = 8
+        width = height = color_type = bit_depth = None
+        idat = bytearray()
+        while pos + 8 <= len(data):
+            length = struct.unpack(">I", data[pos : pos + 4])[0]
+            chunk_type = data[pos + 4 : pos + 8]
+            chunk = data[pos + 8 : pos + 8 + length]
+            pos += 12 + length
+            if chunk_type == b"IHDR":
+                width, height, bit_depth, color_type = struct.unpack(">IIBB", chunk[:10])
+            elif chunk_type == b"IDAT":
+                idat.extend(chunk)
+            elif chunk_type == b"IEND":
+                break
+        if width is None or height is None or bit_depth != 8 or color_type not in (0, 2, 6):
+            raise ValueError("unsupported png")
+        bytes_per_pixel = {0: 1, 2: 3, 6: 4}[color_type]
+        row_bytes = width * bytes_per_pixel
+        raw = zlib.decompress(bytes(idat))
+        pixels: List[tuple[int, int, int]] = []
+        previous = bytearray(row_bytes)
+        offset = 0
+        for _row in range(height):
+            filter_type = raw[offset]
+            offset += 1
+            current = bytearray(raw[offset : offset + row_bytes])
+            offset += row_bytes
+            self._unfilter_png_row(current, previous, filter_type, bytes_per_pixel)
+            for column in range(0, row_bytes, bytes_per_pixel):
+                if color_type == 0:
+                    value = current[column]
+                    pixels.append((value, value, value))
+                else:
+                    pixels.append((current[column], current[column + 1], current[column + 2]))
+            previous = current
+        return width, height, pixels
+
+    def _unfilter_png_row(
+        self, current: bytearray, previous: bytearray, filter_type: int, bytes_per_pixel: int
+    ) -> None:
+        for index in range(len(current)):
+            left = current[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            up = previous[index]
+            up_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            if filter_type == 0:
+                continue
+            if filter_type == 1:
+                current[index] = (current[index] + left) & 0xFF
+            elif filter_type == 2:
+                current[index] = (current[index] + up) & 0xFF
+            elif filter_type == 3:
+                current[index] = (current[index] + ((left + up) // 2)) & 0xFF
+            elif filter_type == 4:
+                current[index] = (current[index] + self._paeth(left, up, up_left)) & 0xFF
+            else:
+                raise ValueError("unsupported png filter")
+
+    def _paeth(self, left: int, up: int, up_left: int) -> int:
+        estimate = left + up - up_left
+        left_distance = abs(estimate - left)
+        up_distance = abs(estimate - up)
+        up_left_distance = abs(estimate - up_left)
+        if left_distance <= up_distance and left_distance <= up_left_distance:
+            return left
+        if up_distance <= up_left_distance:
+            return up
+        return up_left
