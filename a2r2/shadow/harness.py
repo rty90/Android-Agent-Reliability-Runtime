@@ -208,15 +208,17 @@ class ShadowSession:
             )
 
         gated_rows = [r for r in self.rows if r.gated]
-        over_flag = sum(
-            1
-            for r in gated_rows
-            if r.would_allowed is False
-            and r.agent_step_success
-            and self._final_success is True
-            and r.progress_made is not False
-            and r.verify_label not in _CONCERN_VERIFY_LABELS
-        )
+
+        def is_over_flag(row: ShadowStepRow) -> bool:
+            return bool(
+                row.would_allowed is False
+                and row.agent_step_success
+                and self._final_success is True
+                and row.progress_made is not False
+                and row.verify_label not in _CONCERN_VERIFY_LABELS
+            )
+
+        over_flag = sum(1 for r in gated_rows if is_over_flag(r))
         overheads = [r.overhead_ms for r in gated_rows if r.overhead_ms is not None]
         avg_overhead = sum(overheads) / len(overheads) if overheads else None
 
@@ -263,7 +265,10 @@ class ShadowSession:
             "over_flag_count": over_flag,
             "avg_a2r2_overhead_ms_per_action": avg_overhead,
             "errors": list(self.errors),
-            "rows": [r.to_dict() for r in self.rows],
+            "rows": [
+                dict(r.to_dict(), over_flag=is_over_flag(r) if r.gated else False)
+                for r in self.rows
+            ],
         }
         return report
 
@@ -319,12 +324,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
         "",
         "## Steps",
         "",
-        "| # | Skill | Would | Gate label | Verify label | Agent ok | A2R2 flag |",
-        "|---:|---|---|---|---|---|---|",
+        "| # | Skill | Would | Gate label | Verify label | Agent ok | A2R2 flag | Over-flag |",
+        "|---:|---|---|---|---|---|---|---|",
     ]
     for row in report.get("rows", []):
         lines.append(
-            "| {seq} | {skill} | {would} | {glabel} | {vlabel} | {ok} | {flag} |".format(
+            "| {seq} | {skill} | {would} | {glabel} | {vlabel} | {ok} | {flag} | {over} |".format(
                 seq=row.get("seq"),
                 skill=row.get("skill"),
                 would=_fmt(row.get("would_decision")) if row.get("gated") else "(not gated)",
@@ -332,6 +337,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
                 vlabel=_fmt(row.get("verify_label")),
                 ok=_fmt(row.get("agent_step_success")),
                 flag=_fmt(row.get("a2r2_flagged")),
+                over=_fmt(row.get("over_flag")),
             )
         )
     lines.append("")
@@ -374,7 +380,7 @@ def render_html(report: Dict[str, Any]) -> str:
         klass = "row-flag" if flagged else ("row-ok" if ok else "row-fail")
         rows.append(
             "<tr class='{klass}'><td>{seq}</td><td>{skill}</td><td>{would}</td>"
-            "<td>{glabel}</td><td>{vlabel}</td><td>{ok}</td><td>{flag}</td></tr>".format(
+            "<td>{glabel}</td><td>{vlabel}</td><td>{ok}</td><td>{flag}</td><td>{over}</td></tr>".format(
                 klass=klass,
                 seq=_html(row.get("seq")),
                 skill=_html(row.get("skill")),
@@ -383,6 +389,7 @@ def render_html(report: Dict[str, Any]) -> str:
                 vlabel=_html(row.get("verify_label")),
                 ok=_html(row.get("agent_step_success")),
                 flag=_html(row.get("a2r2_flagged")),
+                over=_html(row.get("over_flag")),
             )
         )
     row_html = "\n".join(rows)
@@ -415,7 +422,7 @@ def render_html(report: Dict[str, Any]) -> str:
     """ + card_html + """
   </section>
   <table>
-    <thead><tr><th>#</th><th>Skill</th><th>Would</th><th>Gate label</th><th>Verify label</th><th>Agent ok</th><th>A2R2 flag</th></tr></thead>
+    <thead><tr><th>#</th><th>Skill</th><th>Would</th><th>Gate label</th><th>Verify label</th><th>Agent ok</th><th>A2R2 flag</th><th>Over-flag</th></tr></thead>
     <tbody>
       """ + row_html + """
     </tbody>

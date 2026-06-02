@@ -172,6 +172,7 @@ class ShadowSessionTests(unittest.TestCase):
             report = session.finalize(final_success=True)
 
         self.assertEqual(report["over_flag_count"], 1)
+        self.assertTrue(report["rows"][0]["over_flag"])
         self.assertIsNone(report["a2r2_prediction_matched_failure"])
 
     def test_no_progress_block_is_not_counted_as_over_flag(self):
@@ -193,6 +194,7 @@ class ShadowSessionTests(unittest.TestCase):
 
         self.assertEqual(report["rows"][0]["would_label"], "target_missing")
         self.assertEqual(report["rows"][0]["verify_label"], "no_progress")
+        self.assertFalse(report["rows"][0]["over_flag"])
         self.assertEqual(report["over_flag_count"], 0)
 
     def test_overhead_and_traces_written(self):
