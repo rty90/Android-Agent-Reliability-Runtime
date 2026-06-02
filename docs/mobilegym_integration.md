@@ -92,3 +92,30 @@ After a few imported runs, compare:
 - MobileGym unexpected side effects vs A2R2 high-risk action labels
 - MobileGym repetitive/overdue termination vs A2R2 no-progress/stuck-loop labels
 - Per-step A2R2 first flag lead time relative to MobileGym failure outcome
+
+## Benchmark Command
+
+`a2r2.reports.mobilegym_benchmark` reads one or more imported
+`mobilegym_a2r2_summary.json` files and produces a benchmark that puts MobileGym
+ground truth next to A2R2 detected labels (schema `a2r2_mobilegym_benchmark.v1`):
+
+```powershell
+python scripts\mobilegym_benchmark.py `
+  --reports-dir data\reports\mobilegym_import `
+  --out docs\mobilegym_benchmark_v0.1.md
+```
+
+It writes Markdown + JSON with a table:
+
+| Metric | MobileGym Ground Truth | A2R2 Detected | Notes |
+|---|---:|---:|---|
+| False Complete Episodes | N | M | recall/precision of A2R2 `false_success` vs MobileGym `false_complete` |
+| Unexpected Side Effects | N | M | A2R2 risk labels; mapping approximate |
+| No Progress / Stuck Loop | n/a | M | MobileGym has no direct ground truth |
+| Trace Coverage | N | M | episodes with an A2R2 trace.v1 written |
+
+The False Complete row reports a real confusion matrix (TP/FN/FP) so A2R2's
+detection recall and precision are measured against MobileGym's judge, not
+assumed. Numbers are only ever derived from imported runs; metrics without a
+MobileGym ground truth are reported as `n/a` rather than fabricated. The
+`docs/` output is intended to be regenerated from real imported runs.
