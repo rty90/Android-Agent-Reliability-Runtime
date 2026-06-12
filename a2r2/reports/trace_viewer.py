@@ -323,6 +323,7 @@ def render_html(model: Mapping[str, Any]) -> str:
         <option value="allowed">Allowed</option>
         <option value="unsafe_action">Unsafe action</option>
         <option value="non_ready_action">Non-ready</option>
+        <option value="target_missing">Target missing</option>
         <option value="false_success">False success</option>
       </select>
       <select id="sort">
@@ -352,7 +353,7 @@ def render_html(model: Mapping[str, Any]) -> str:
     }
     function labelKind(label) {
       if (!label) return '';
-      if (['unsafe_action', 'false_success', 'stuck_loop'].includes(label)) return 'bad';
+      if (['unsafe_action', 'false_success', 'stuck_loop', 'target_missing'].includes(label)) return 'bad';
       if (['non_ready_action', 'modal_blocker', 'blank_webview', 'no_progress'].includes(label)) return 'warn';
       return 'ok';
     }

@@ -211,8 +211,54 @@ def read_screen_summary(
     xml_path: str,
     runtime_config: Optional[DemoMessageConfig] = None,
 ) -> Dict[str, Any]:
-    dump_path = adb.dump_ui_xml(xml_path)
-    tree = ET.parse(str(dump_path))
+    try:
+        dump_path = adb.dump_ui_xml(xml_path)
+    except Exception as exc:
+        focus = adb.get_current_focus()
+        current_package = _package_from_focus(focus)
+        summary = {
+            "app": current_package or "unknown",
+            "current_package": current_package,
+            "current_url": None,
+            "current_domain": None,
+            "page": "unobservable_screen",
+            "visible_text": [],
+            "possible_targets": [],
+            "possible_target_total_count": 0,
+            "possible_targets_truncated": False,
+            "focus": focus,
+            "ui_dump_path": str(xml_path),
+            "ui_dump_error": "{0}: {1}".format(type(exc).__name__, exc),
+            "xml_text": "",
+        }
+        summary["system_overlay"] = _read_system_overlay(adb, summary)
+        summary["affordance_graph"] = build_affordance_graph(summary)
+        return summary
+
+    raw_xml = Path(str(dump_path)).read_text(encoding="utf-8", errors="ignore")
+    try:
+        tree = ET.ElementTree(ET.fromstring(raw_xml))
+    except ET.ParseError as exc:
+        focus = adb.get_current_focus()
+        current_package = _package_from_focus(focus)
+        summary = {
+            "app": current_package or "unknown",
+            "current_package": current_package,
+            "current_url": None,
+            "current_domain": None,
+            "page": "unobservable_screen",
+            "visible_text": [],
+            "possible_targets": [],
+            "possible_target_total_count": 0,
+            "possible_targets_truncated": False,
+            "focus": focus,
+            "ui_dump_path": str(dump_path),
+            "ui_dump_error": "ParseError: {0}".format(exc),
+            "xml_text": raw_xml[:2000],
+        }
+        summary["system_overlay"] = _read_system_overlay(adb, summary)
+        summary["affordance_graph"] = build_affordance_graph(summary)
+        return summary
     root = tree.getroot()
     current_package = _first_package(root)
     current_url = _extract_browser_url(root)
@@ -235,14 +281,17 @@ def read_screen_summary(
 
     browser_page = _detect_browser_page(visible_text, possible_targets, current_package, current_url)
     detected_page = detect_page_name(visible_text, focus, runtime_config)
+    target_limit = 50
     summary = {
         "app": app_name,
         "current_package": current_package,
         "current_url": current_url,
         "current_domain": current_domain,
         "page": browser_page or detected_page or Path(str(dump_path)).stem,
-        "visible_text": visible_text[:50],
-        "possible_targets": possible_targets[:50],
+        "visible_text": visible_text[:target_limit],
+        "possible_targets": possible_targets[:target_limit],
+        "possible_target_total_count": len(possible_targets),
+        "possible_targets_truncated": len(possible_targets) > target_limit,
         "focus": focus,
         "ui_dump_path": str(dump_path),
     }

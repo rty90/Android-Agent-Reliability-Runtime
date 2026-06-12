@@ -116,6 +116,22 @@ class ReadScreenTests(unittest.TestCase):
         self.assertEqual(summary["page"], "bilibili_search_results")
         self.assertIn("keyword=Llm", summary["current_url"])
 
+    def test_read_screen_returns_unobservable_summary_for_invalid_ui_dump(self):
+        summary = read_screen_summary(
+            ReadScreenADB(
+                "ERROR: null root node returned by UiTestAutomationBridge.",
+                focus="mCurrentFocus=Window{abc u0 com.google.android.googlequicksearchbox/.Search}",
+            ),
+            "tmp/test_dbs/null_root.xml",
+            runtime_config=build_demo_message_config(),
+        )
+
+        self.assertEqual(summary["page"], "unobservable_screen")
+        self.assertEqual(summary["current_package"], "com.google.android.googlequicksearchbox")
+        self.assertIn("ParseError", summary["ui_dump_error"])
+        self.assertIn("null root node", summary["xml_text"])
+        self.assertEqual(summary["possible_target_total_count"], 0)
+
     def test_read_screen_attaches_system_overlay_probe_result(self):
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <hierarchy>

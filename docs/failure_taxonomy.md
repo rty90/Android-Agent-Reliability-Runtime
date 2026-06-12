@@ -56,6 +56,13 @@ Signals: unchanged UI hash, XML hash, and screenshot hash.
 Review: automatic detection; human review may be needed to judge semantic progress.
 Example: tapping a non-responsive control.
 
+## target_missing
+
+Definition: The agent proposed a named UI target that is not present in the current actionable UI facts.
+Signals: a proposed tap/click target is absent from generic `possible_targets`/XML facts.
+Review: automatic for structured UI facts; human review recommended when the source UI facts are sparse.
+Example: tapping "Save" while the current screen exposes only search/home targets.
+
 ## partial_completion
 
 Definition: Some progress occurred, but the task is not proven complete.

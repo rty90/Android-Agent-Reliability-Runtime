@@ -3,6 +3,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import struct
+import zlib
 from pathlib import Path
 
 from a2r2 import Observation, ProposedAction, ReliabilityRuntime, RuntimeConfig
@@ -24,6 +26,26 @@ LOADING_XML = """<?xml version="1.0" encoding="UTF-8"?>
   <node class="android.widget.ProgressBar" text="Loading" clickable="false" enabled="true" />
 </hierarchy>
 """
+
+
+def _write_rgb_png(path: Path, width: int, height: int, rgb):
+    raw = bytearray()
+    for _row in range(height):
+        raw.append(0)
+        for _column in range(width):
+            raw.extend(rgb)
+    payload = zlib.compress(bytes(raw))
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", payload)
+        + chunk(b"IEND", b"")
+    )
 
 
 class A2R2RuntimeTests(unittest.TestCase):
@@ -56,6 +78,75 @@ class A2R2RuntimeTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.decision, "wait")
         self.assertEqual(decision.diagnosis_label, "non_ready_action")
+
+    def test_readiness_policy_labels_black_screen_with_null_ui_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            screenshot = Path(temp_dir) / "black.png"
+            _write_rgb_png(screenshot, 8, 8, (0, 0, 0))
+
+            decision = ReadinessPolicy().evaluate(
+                goal="tap search",
+                observation=Observation(
+                    screenshot_path=str(screenshot),
+                    metadata={"xml_text": "ERROR: null root node returned by UiTestAutomationBridge."},
+                ),
+                proposed_action=ProposedAction(action_type="tap", target_text="Search"),
+                history=[],
+            )
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.decision, "wait")
+        self.assertEqual(decision.diagnosis_label, "black_screen")
+        self.assertIn("black_screenshot", decision.evidence)
+
+    def test_readiness_policy_allows_open_app_without_current_xml(self):
+        decision = ReadinessPolicy().evaluate(
+            goal="open settings",
+            observation=Observation(),
+            proposed_action=ProposedAction(action_type="open_app", raw={"package_name": "com.android.settings"}),
+            history=[],
+        )
+
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.decision, "allow")
+        self.assertIn("screen_independent_action:open_app", decision.evidence)
+
+    def test_readiness_policy_blocks_missing_named_target_from_ui_facts(self):
+        decision = ReadinessPolicy().evaluate(
+            goal="save a reminder",
+            observation=Observation(
+                metadata={
+                    "xml_text": READY_XML,
+                    "possible_targets": [{"label": "Search", "clickable": True, "enabled": True}],
+                }
+            ),
+            proposed_action=ProposedAction(action_type="tap", target_text="Save"),
+            history=[],
+        )
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.decision, "block")
+        self.assertEqual(decision.diagnosis_label, "target_missing")
+        self.assertIn("target_not_in_possible_targets", decision.evidence)
+
+    def test_readiness_policy_does_not_block_missing_target_when_target_facts_are_truncated(self):
+        decision = ReadinessPolicy().evaluate(
+            goal="save a reminder",
+            observation=Observation(
+                metadata={
+                    "xml_text": READY_XML,
+                    "possible_targets": [{"label": "Day {0}".format(i)} for i in range(50)],
+                    "possible_target_count": 50,
+                    "possible_target_total_count": 50,
+                    "possible_targets_truncated": False,
+                }
+            ),
+            proposed_action=ProposedAction(action_type="tap", target_text="Save"),
+            history=[],
+        )
+
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.decision, "allow")
 
     def test_risk_policy_handoffs_dangerous_action_text(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -92,6 +183,19 @@ class A2R2RuntimeTests(unittest.TestCase):
         self.assertFalse(verification.progress_made)
         self.assertEqual(verification.diagnosis_label, "stuck_loop")
 
+    def test_progress_policy_does_not_flag_confirm_no_progress(self):
+        verification = ProgressPolicy().evaluate(
+            goal="confirm a saved action",
+            before_observation=Observation(ui_tree_hash="same", metadata={"xml_text": READY_XML}),
+            action=ProposedAction(action_type="confirm", raw={"confirmation_context": True}),
+            after_observation=Observation(ui_tree_hash="same", metadata={"xml_text": READY_XML}),
+            history=[],
+        )
+
+        self.assertFalse(verification.progress_made)
+        self.assertIsNone(verification.diagnosis_label)
+        self.assertIn("no_progress_expected_for:confirm", verification.evidence)
+
     def test_scorecard_handles_empty_trace_dir(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             scorecard = generate_scorecard(str(Path(temp_dir) / "missing"))
@@ -108,7 +212,7 @@ class A2R2RuntimeTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "examples\\wrap_external_agent.py",
+                    str(repo_root / "examples" / "wrap_external_agent.py"),
                     "--dry-run",
                     "--trace-dir",
                     temp_dir,

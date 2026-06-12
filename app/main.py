@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_runtime(device_id=None, planner_backend="rule", reasoner_backend="rule", demo_config=None):
+def build_runtime(device_id=None, planner_backend="rule", reasoner_backend="rule", demo_config=None, step_observer=None):
     logger = setup_logger()
     adb = ADBClient(device_id=device_id)
     state = AgentState()
@@ -132,6 +132,7 @@ def build_runtime(device_id=None, planner_backend="rule", reasoner_backend="rule
         page_reasoner=page_reasoner,
         runtime_config=demo_config,
         trace_bus=trace_bus,
+        step_observer=step_observer,
     )
     return {
         "logger": logger,
@@ -162,6 +163,7 @@ def run_task(
     max_steps=3,
     dry_run=False,
     auto_confirm=False,
+    step_observer=None,
 ):
     if auto_confirm:
         os.environ["AGENT_AUTO_CONFIRM"] = "1"
@@ -173,6 +175,7 @@ def run_task(
             planner_backend=planner_backend,
             reasoner_backend=reasoner_backend,
             demo_config=demo_config,
+            step_observer=step_observer,
         )
         logger = runtime["logger"]
         adb = runtime["adb"]

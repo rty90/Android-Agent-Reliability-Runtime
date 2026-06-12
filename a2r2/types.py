@@ -37,6 +37,11 @@ class RuntimeConfig:
     high_risk_requires_handoff: bool = True
     manual_handoff_on_uncertain_risk: bool = True
     default_wait_seconds: float = 2.0
+    # When False (default) the runtime only observes and records its decisions
+    # (shadow mode). When True a caller may act on a block/wait/handoff decision
+    # (enforce mode). The runtime itself never executes actions either way; this
+    # flag only documents intent and is stamped into traces.
+    enforce: bool = False
     agent_meta: Dict[str, Any] = field(default_factory=dict)
 
 
