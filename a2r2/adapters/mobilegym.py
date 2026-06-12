@@ -38,7 +38,23 @@ def import_mobilegym_run(
     imported: List[Dict[str, Any]] = []
     skipped: List[Dict[str, Any]] = []
 
+    infra_errors: List[Dict[str, Any]] = []
     for result in results:
+        # Infrastructure failures (endpoint dead, context overflow, ...) carry
+        # zero agent decisions; importing them would pollute agent-failure
+        # statistics with infra noise. Track them separately instead.
+        execution = result.get("execution") if isinstance(result.get("execution"), Mapping) else {}
+        error_text = str(execution.get("error") or result.get("error") or "")
+        if error_text or str(execution.get("stop_reason") or "").upper() == "ERROR":
+            infra_errors.append(
+                {
+                    "id": result.get("id"),
+                    "trial_id": result.get("trial_id", 0),
+                    "reason": "infra_error",
+                    "error": error_text[:200],
+                }
+            )
+            continue
         episode_dir = find_trajectory_dir(source, result, repeat_n=int(meta.get("repeat_n") or 1))
         if not episode_dir:
             skipped.append({"id": result.get("id"), "reason": "trajectory_not_found"})
@@ -59,6 +75,8 @@ def import_mobilegym_run(
         )
 
     summary = build_mobilegym_import_summary(source, meta, results, imported, skipped)
+    summary["episodes_infra_error"] = len(infra_errors)
+    summary["infra_errors"] = infra_errors
     if out_dir:
         target = Path(out_dir)
         target.mkdir(parents=True, exist_ok=True)
@@ -99,7 +117,8 @@ def import_mobilegym_episode(
     )
     history: List[Dict[str, Any]] = []
     for index, step in enumerate(trajectory):
-        next_step = trajectory[index + 1] if index + 1 < len(trajectory) else step
+        is_last = index + 1 >= len(trajectory)
+        next_step = step if is_last else trajectory[index + 1]
         before = observation_from_mobilegym_step(episode_dir, step, result=result)
         after = observation_from_mobilegym_step(
             episode_dir,
@@ -107,19 +126,31 @@ def import_mobilegym_episode(
             result=result,
             terminal_action=str(step.get("action_type") or "").upper() in {"COMPLETE", "ABORT"},
         )
+        if is_last:
+            # MobileGym records no observation after the final action; the
+            # fabricated self-comparison must not read as "no progress".
+            after.metadata["after_observation_missing"] = True
         action = proposed_action_from_mobilegym_step(step)
         decision = runtime.check_before_action(goal, before, action, history)
         verification = runtime.verify_after_action(goal, before, action, after, history)
         record = runtime.record_step(goal, before, action, decision, after, verification, history)
         history.append(record)
 
+    agent_claimed = _agent_claimed_success(result, trajectory)
     runtime.write_episode_summary(
         goal=goal,
         final_success=bool(result.get("is_success")),
-        agent_claimed_success=_agent_claimed_success(result, trajectory),
+        agent_claimed_success=agent_claimed,
     )
     exported = runtime.export_trace()
     episode_summary = _read_json(Path(exported["summary_path"]))
+    try:
+        progress_value = float(result.get("progress") or 0.0)
+    except (TypeError, ValueError):
+        progress_value = 0.0
+    a2r2_progress_seen = any(
+        bool((record.get("progress_verification") or {}).get("progress_made")) for record in history
+    )
     return {
         "task_id": task_id,
         "trial_id": result.get("trial_id", 0),
@@ -128,6 +159,14 @@ def import_mobilegym_episode(
         "mobilegym_false_complete": bool(result.get("false_complete")),
         "mobilegym_unexpected_side_effects": not _judge_clean(result),
         "mobilegym_progress": result.get("progress"),
+        # OT ground truth: judge says the goal state was fully reached, yet the
+        # episode is not a success (the agent never terminated properly).
+        "mobilegym_overdue_termination": bool(
+            progress_value >= 1.0 and not result.get("is_success") and not result.get("false_complete")
+        ),
+        # Process-level A2R2 counterpart: the agent made observable progress but
+        # never claimed completion. Broader than OT by design (no judge access).
+        "a2r2_no_termination_after_progress": bool(not agent_claimed and a2r2_progress_seen),
         "a2r2_episode_id": runtime.episode_id,
         "a2r2_summary_path": exported["summary_path"],
         "a2r2_steps_path": exported["steps_path"],

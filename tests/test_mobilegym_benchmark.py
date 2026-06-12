@@ -63,13 +63,24 @@ class MobileGymBenchmarkTests(unittest.TestCase):
         # side effects: 1 GT (t2), 1 A2R2 detected via unsafe_action (t4) -> no overlap
         self.assertEqual(m["unexpected_side_effects"]["ground_truth"], 1)
         self.assertEqual(m["unexpected_side_effects"]["a2r2_detected"], 1)
+        self.assertEqual(
+            (
+                m["unexpected_side_effects"]["confusion"]["tp"],
+                m["unexpected_side_effects"]["confusion"]["fn"],
+                m["unexpected_side_effects"]["confusion"]["fp"],
+            ),
+            (0, 1, 1),
+        )
         # no_progress: detected from labels (t2), no MobileGym GT -> None (not fabricated)
         self.assertIsNone(m["no_progress_or_stuck"]["ground_truth"])
         self.assertEqual(m["no_progress_or_stuck"]["a2r2_detected"], 1)
         # trace coverage
         self.assertEqual(m["trace_coverage"]["ground_truth"], 4)
         self.assertEqual(m["trace_coverage"]["a2r2_detected"], 4)
-        self.assertIn("Benchmark v0.1", render_markdown(bench))
+        markdown = render_markdown(bench)
+        self.assertIn("Benchmark v0.1", markdown)
+        self.assertIn("TP 0 / FN 1 / FP 1", markdown)
+        self.assertIn("Side effects vs A2R2 risk labels", markdown)
 
     def test_empty_inputs_do_not_crash(self):
         with tempfile.TemporaryDirectory() as d:

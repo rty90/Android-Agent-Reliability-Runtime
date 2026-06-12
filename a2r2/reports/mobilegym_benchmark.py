@@ -91,15 +91,22 @@ def build_benchmark(reports_dir: str) -> Dict[str, Any]:
     side_effects = _confusion(
         episodes, "mobilegym_unexpected_side_effects", lambda e: _has_label(e, _SIDE_EFFECT_LABELS)
     )
+    overdue = _confusion(
+        episodes,
+        "mobilegym_overdue_termination",
+        lambda e: e.get("a2r2_no_termination_after_progress"),
+    )
     no_progress_detected = sum(1 for e in episodes if _has_label(e, _NO_PROGRESS_LABELS))
     episodes_total_declared = sum(int(s.get("episodes_total") or 0) for s in summaries)
     episodes_imported = sum(int(s.get("episodes_imported") or 0) for s in summaries)
+    episodes_infra_error = sum(int(s.get("episodes_infra_error") or 0) for s in summaries)
 
     return {
         "schema_version": SCHEMA_VERSION,
         "reports_dir": str(reports_dir),
         "runs": len(summaries),
         "episodes_compared": total,
+        "episodes_infra_error_excluded": episodes_infra_error,
         "metrics": {
             "false_complete": {
                 "ground_truth": false_complete["ground_truth"],
@@ -114,6 +121,12 @@ def build_benchmark(reports_dir: str) -> Dict[str, Any]:
                 "note": "A2R2 risk labels ({0}); mapping is approximate".format(
                     ", ".join(sorted(_SIDE_EFFECT_LABELS))
                 ),
+            },
+            "overdue_termination": {
+                "ground_truth": overdue["ground_truth"],
+                "a2r2_detected": overdue["detected"],
+                "confusion": overdue,
+                "note": "A2R2 no-termination-after-progress vs MobileGym OT (progress=1 without success); A2R2 signal is broader by design",
             },
             "no_progress_or_stuck": {
                 "ground_truth": None,
@@ -143,6 +156,9 @@ def render_markdown(bench: Dict[str, Any]) -> str:
     fc = m.get("false_complete", {})
     fc_conf = fc.get("confusion", {})
     se = m.get("unexpected_side_effects", {})
+    se_conf = se.get("confusion", {})
+    ot = m.get("overdue_termination", {})
+    ot_conf = ot.get("confusion", {})
     np_ = m.get("no_progress_or_stuck", {})
     tc = m.get("trace_coverage", {})
 
@@ -154,6 +170,9 @@ def render_markdown(bench: Dict[str, Any]) -> str:
         "",
         "- Runs compared: {0}".format(bench.get("runs")),
         "- Episodes compared: {0}".format(bench.get("episodes_compared")),
+        "- Infra-error episodes excluded (no agent decisions): {0}".format(
+            bench.get("episodes_infra_error_excluded", 0)
+        ),
         "",
         "| Metric | MobileGym Ground Truth | A2R2 Detected | Notes |",
         "|---|---:|---:|---|",
@@ -163,7 +182,22 @@ def render_markdown(bench: Dict[str, Any]) -> str:
             fc_conf.get("tp"), fc_conf.get("fn"), fc_conf.get("fp"),
         ),
         "| Unexpected Side Effects | {0} | {1} | {2} |".format(
-            _fmt(se.get("ground_truth")), _fmt(se.get("a2r2_detected")), se.get("note"),
+            _fmt(se.get("ground_truth")), _fmt(se.get("a2r2_detected")),
+            "{0}; recall {1}, precision {2} (TP {3} / FN {4} / FP {5})".format(
+                se.get("note"),
+                _fmt(se_conf.get("recall")),
+                _fmt(se_conf.get("precision")),
+                se_conf.get("tp"),
+                se_conf.get("fn"),
+                se_conf.get("fp"),
+            ),
+        ),
+        "| Overdue Termination | {0} | {1} | {2} |".format(
+            _fmt(ot.get("ground_truth")), _fmt(ot.get("a2r2_detected")),
+            "recall {0}, precision {1} (TP {2} / FN {3} / FP {4})".format(
+                _fmt(ot_conf.get("recall")), _fmt(ot_conf.get("precision")),
+                ot_conf.get("tp"), ot_conf.get("fn"), ot_conf.get("fp"),
+            ),
         ),
         "| No Progress / Stuck Loop | {0} | {1} | {2} |".format(
             _fmt(np_.get("ground_truth")), _fmt(np_.get("a2r2_detected")), np_.get("note"),
@@ -184,6 +218,25 @@ def render_markdown(bench: Dict[str, Any]) -> str:
                 ep.get("trial_id"),
                 bool(ep.get("mobilegym_false_complete")),
                 bool(ep.get("a2r2_false_success")),
+                ep.get("a2r2_failure_labels") or [],
+            )
+        )
+    if not bench.get("episodes"):
+        lines.append("| (no imported episodes yet) | | | | |")
+    lines.extend([
+        "",
+        "## Side effects vs A2R2 risk labels (per episode)",
+        "",
+        "| Task | Trial | MobileGym USE | A2R2 risk label | A2R2 labels |",
+        "|---|---:|---:|---:|---|",
+    ])
+    for ep in bench.get("episodes", []):
+        lines.append(
+            "| {0} | {1} | {2} | {3} | `{4}` |".format(
+                ep.get("task_id"),
+                ep.get("trial_id"),
+                bool(ep.get("mobilegym_unexpected_side_effects")),
+                _has_label(ep, _SIDE_EFFECT_LABELS),
                 ep.get("a2r2_failure_labels") or [],
             )
         )

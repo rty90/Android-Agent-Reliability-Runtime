@@ -60,6 +60,19 @@ class ReadinessPolicy:
         null_ui_root = "null root node" in corpus or "uitestautomationbridge" in corpus
         black_screen = self._looks_like_black_screenshot(observation.screenshot_path)
 
+        if self._is_degenerate_pointer_action(proposed_action):
+            return RuntimeDecision(
+                decision="manual_handoff",
+                allowed=False,
+                reason="The proposed pointer action has neither coordinates nor a named target.",
+                diagnosis_label="degenerate_action",
+                evidence=[
+                    "pointer_action_without_target_or_coordinates:{0}".format(proposed_action.action_type)
+                ],
+                confidence=0.88,
+                policy_name=self.policy_name,
+            )
+
         if self._same_hash_repeated(observation, history):
             return self._wait(
                 reason="The same UI state has repeated across recent steps.",
@@ -197,6 +210,20 @@ class ReadinessPolicy:
             confidence=0.80,
             policy_name=self.policy_name,
         )
+
+    _DEGENERATE_POINTER_ACTIONS = {"tap", "click", "double_tap", "long_press"}
+
+    def _is_degenerate_pointer_action(self, action: ProposedAction) -> bool:
+        # A pointer action with neither coordinates nor a named target is
+        # malformed (e.g. a model emitting CLICK with an empty point). It is a
+        # clear agent malfunction signal, independent of the screen state.
+        if str(action.action_type or "").lower() not in self._DEGENERATE_POINTER_ACTIONS:
+            return False
+        has_coords = action.x is not None and action.y is not None
+        has_target = bool(
+            str(action.target_text or "").strip() or str(action.target_resource_id or "").strip()
+        )
+        return not has_coords and not has_target
 
     def _screen_independent_action(self, action: ProposedAction) -> bool:
         return str(action.action_type or "").lower() in {"open_app", "wait"}

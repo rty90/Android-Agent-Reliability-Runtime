@@ -101,8 +101,15 @@ def action_fingerprint(action: ProposedAction) -> str:
     )
 
 
+# Free-text agent reasoning fields are not part of the action's risk surface;
+# a high-risk word in the model's *thought* must not look like a risky action.
+_NON_ACTION_RAW_KEYS = ("thought", "summary", "reasoning", "rationale", "observation", "notes")
+
+
 def action_text(action: ProposedAction) -> str:
-    raw = action.raw or {}
+    raw = action.raw if isinstance(action.raw, Mapping) else {}
+    if raw:
+        raw = {key: value for key, value in raw.items() if str(key).lower() not in _NON_ACTION_RAW_KEYS}
     return " ".join(
         str(item or "")
         for item in (
